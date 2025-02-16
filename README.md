@@ -136,11 +136,6 @@ To train the model:
 python main.py
 ```
 
-To predict:
-```bash
-python predict.py
-```
-
 ---
 
 ## Examples
@@ -313,11 +308,6 @@ This project is distributed under the MIT license. For details, see the [LICENSE
 Для обучения модели:
 ```bash
 python main.py
-```
-
-Для предсказания:
-```bash
-python predict.py
 ```
 
 ---
