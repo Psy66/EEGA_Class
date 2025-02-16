@@ -1,0 +1,1075 @@
+# config.py
+import json
+import logging
+import os
+from dataclasses import dataclass, fields
+from typing import Any, Dict
+
+@dataclass
+class Config:
+    """
+    Класс для хранения и управления конфигурацией приложения.
+
+    Атрибуты:
+        LOGGING_LEVEL (int): Уровень логирования (по умолчанию: logging.INFO).
+        DATA_PATH (str): Путь к данным для обучения.
+        LABELS_PATH (str): Путь к файлу с метками.
+        MODEL_PATH (str): Путь для сохранения модели.
+        PRED_PATH (str): Путь к данным для предсказания.
+        SEGMENT_LENGTH (int): Длина сегмента данных.
+        BATCH_SIZE (int): Размер батча.
+        EPOCHS (int): Количество эпох обучения.
+        LEARNING_RATE (float): Скорость обучения.
+        TEST_SIZE (float): Размер тестового набора.
+        LOW_PASS_F (float): Нижний порог фильтрации.
+        HIGH_PASS_F (float): Верхний порог фильтрации.
+        LEARNING_RATE_DECAY (float): Коэффициент уменьшения скорости обучения.
+    """
+    LOGGING_LEVEL: int = logging.INFO
+    DATA_PATH: str = r"D:/EEGBASE/Penetratio/EDF/"
+    LABELS_PATH: str = r"D:/EEGBASE/Penetratio/file.csv"
+    MODEL_PATH: str = r"D:/PythonProject/EEG_class/model.pth"
+    PRED_PATH: str = r"D:/EEGBASE/Penetratio/TEST/"
+    SEGMENT_LENGTH: int = 1000
+    BATCH_SIZE: int = 32
+    EPOCHS: int = 10
+    LEARNING_RATE: float = 0.001
+    TEST_SIZE: float = 0.2
+    LOW_PASS_F: float = 0.5
+    HIGH_PASS_F: float = 70.0
+    LEARNING_RATE_DECAY: float = 0.8
+
+    @classmethod
+    def setup_logging(cls) -> None:
+        """Настройка логирования."""
+        logging.basicConfig(level=cls.LOGGING_LEVEL, format='%(levelname)s - %(message)s')
+
+    @classmethod
+    def save_to_file(cls, file_path: str = "config.json") -> None:
+        """
+        Сохраняет текущую конфигурацию в файл.
+
+        Аргументы:
+            file_path (str): Путь к файлу для сохранения конфигурации.
+        """
+        config_dict = {field.name: getattr(cls, field.name) for field in fields(cls)}
+        with open(file_path, "w") as f:
+            json.dump(config_dict, f, indent=4)
+        logging.info(f"Настройки сохранены в {file_path}")
+
+    @classmethod
+    def load_from_file(cls, file_path: str = "config.json") -> None:
+        """
+        Загружает конфигурацию из файла.
+
+        Аргументы:
+            file_path (str): Путь к файлу с конфигурацией.
+        """
+        if os.path.exists(file_path):
+            with open(file_path, "r") as f:
+                data: Dict[str, Any] = json.load(f)
+            for key, value in data.items():
+                if hasattr(cls, key):
+                    field_type = cls.__annotations__.get(key)
+                    if field_type:
+                        try:
+                            if field_type == int:
+                                value = int(float(value))
+                            elif field_type == float:
+                                value = float(value)
+                        except (ValueError, TypeError):
+                            logging.warning(
+                                f"Невозможно преобразовать {key}={value} в {field_type}. Используется значение по умолчанию."
+                            )
+                            value = getattr(cls, key)  # Используем значение по умолчанию
+                    setattr(cls, key, value)
+            logging.info(f"Настройки загружены из {file_path}")
+        else:
+            logging.info(f"Файл {file_path} не найден. Используются настройки по умолчанию.")
+
+    @classmethod
+    def log_config(cls) -> None:
+        """Логирует текущую конфигурацию."""
+        logging.info("Текущая конфигурация:")
+        for field in fields(cls):
+            value = getattr(cls, field.name)
+            logging.info(f"{field.name}: {value}")
+
+# Настройка логирования и загрузка конфигурации
+Config.setup_logging()
+Config.load_from_file()
+Config.log_config()  # Логируем текущую конфигурацию
+logging.info("Конфигурация успешно загружена.")
+
+# data_processor.py
+import logging
+import os
+import warnings
+from typing import Tuple
+import mne
+import numpy as np
+import pandas as pd
+from config import Config
+
+class EEGProcessor:
+    """
+    Класс для обработки данных EEG.
+
+    Методы:
+        load_labels: Загружает метки из CSV-файла.
+        describe_first_file: Возвращает информацию о первом файле в директории.
+        process_edf: Обрабатывает EDF-файлы и возвращает данные для обучения.
+        load_and_process_data: Загружает и обрабатывает данные.
+    """
+
+    @staticmethod
+    def load_labels(csv_path: str) -> pd.DataFrame:
+        """
+        Загружает метки из CSV-файла.
+
+        Аргументы:
+            csv_path (str): Путь к CSV-файлу с метками.
+
+        Возвращает:
+            pd.DataFrame: DataFrame с метками.
+
+        Исключения:
+            Exception: Если произошла ошибка при загрузке файла.
+        """
+        try:
+            return pd.read_csv(csv_path, delimiter=';')
+        except Exception as e:
+            logging.error(f"Ошибка при загрузке меток из {csv_path}: {e}")
+            raise
+
+    @staticmethod
+    def describe_first_file(dir_path: str) -> str:
+        """
+        Возвращает информацию о первом EDF-файле в директории.
+
+        Аргументы:
+            dir_path (str): Путь к директории с EDF-файлами.
+
+        Возвращает:
+            str: Информация о первом файле.
+        """
+        for file in os.listdir(dir_path):
+            if file.endswith('.EDF'):
+                try:
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", category=RuntimeWarning)
+                        raw = mne.io.read_raw_edf(os.path.join(dir_path, file), preload=True, verbose=False)
+                    info = [
+                        f"Информация о первом файле в директории: {file}",
+                        f"Длительность записи: {raw.times[-1]:.2f} секунд",
+                        f"Частота дискретизации: {raw.info['sfreq']} Гц",
+                        f"Количество каналов: {raw.info['nchan']}",
+                    ]
+                    if raw.annotations:
+                        info.append(f"События (метки): {raw.annotations.description}")
+                    else:
+                        info.append("События (метки) отсутствуют.")
+                    return "\n".join(info)
+                except Exception as e:
+                    logging.error(f"Ошибка при анализе файла {file}: {str(e)}")
+                    return f"Ошибка при анализе файла {file}: {str(e)}"
+        return "Файлы .EDF не найдены в директории."
+
+    @staticmethod
+    def process_edf(dir_path: str, labels_df: pd.DataFrame, seg_len: int) -> Tuple[np.ndarray, np.ndarray, int, int]:
+        """
+        Обрабатывает EDF-файлы и возвращает данные для обучения.
+
+        Аргументы:
+            dir_path (str): Путь к директории с EDF-файлами.
+            labels_df (pd.DataFrame): DataFrame с метками.
+            seg_len (int): Длина сегмента данных.
+
+        Возвращает:
+            Tuple[np.ndarray, np.ndarray, int, int]:
+                - x_data_array: Массив признаков.
+                - y_data_array: Массив меток.
+                - processed_files: Количество обработанных файлов.
+                - skipped_files: Количество пропущенных файлов.
+        """
+        x_data, y_data = [], []
+        skipped_files = processed_files = 0
+
+        for file in os.listdir(dir_path):
+            if file.endswith('.EDF'):
+                labels = labels_df.loc[labels_df['Filename'] == file, 'key'].dropna().values
+                if labels.size == 0:
+                    skipped_files += 1
+                    continue
+                try:
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", category=RuntimeWarning)
+                        raw = mne.io.read_raw_edf(os.path.join(dir_path, file), preload=True, verbose=False)
+                    raw.filter(Config.LOW_PASS_F, Config.HIGH_PASS_F, verbose=False)
+                    raw.crop(2 / raw.info['sfreq'], (len(raw.times) - 2) / raw.info['sfreq'])
+                    for i in range(len(raw.times) // seg_len):
+                        start, stop = i * seg_len, (i + 1) * seg_len
+                        if stop > len(raw.times):
+                            break
+                        segment = raw.get_data(start=start, stop=stop)
+                        segment_min, segment_max = np.min(segment), np.max(segment)
+                        if segment_max - segment_min > 0:
+                            segment = (segment - segment_min) / (segment_max - segment_min)
+                        x_data.append(segment)
+                        y_data.extend(labels)
+                    processed_files += 1
+                except Exception as e:
+                    logging.error(f"Ошибка при обработке файла {file}: {str(e)}")
+
+        logging.info(f"Обработано файлов: {processed_files}, пропущено файлов (без меток): {skipped_files}")
+        x_data_array = np.array(x_data).reshape(-1, raw.info['nchan'], seg_len, 1)
+        y_data_array = np.array(y_data)
+        return x_data_array, y_data_array, processed_files, skipped_files
+
+    @staticmethod
+    def load_and_process_data(data_path: str, labels_path: str, segment_length: int) -> Tuple[np.ndarray, np.ndarray, int, int, int, int, str]:
+        """
+        Загружает и обрабатывает данные.
+
+        Аргументы:
+            data_path (str): Путь к данным.
+            labels_path (str): Путь к файлу с метками.
+            segment_length (int): Длина сегмента данных.
+
+        Возвращает:
+            Tuple[np.ndarray, np.ndarray, int, int, int, int, str]:
+                - features: Массив признаков.
+                - labels: Массив меток.
+                - n_cls: Количество классов.
+                - n_chan: Количество каналов.
+                - processed_files: Количество обработанных файлов.
+                - skipped_files: Количество пропущенных файлов.
+                - file_info: Информация о первом файле.
+        """
+        try:
+            labels = EEGProcessor.load_labels(labels_path)
+            file_info = EEGProcessor.describe_first_file(data_path)  # Получаем информацию о первом файле
+            features, labels, processed_files, skipped_files = EEGProcessor.process_edf(data_path, labels, segment_length)
+            unique_labels, labels = np.unique(labels, return_inverse=True)
+            n_chan = features.shape[1]
+            logging.info(f"Количество классов: {len(unique_labels)}, Классы: {', '.join(map(str, unique_labels))}, "
+                         f"Размер тренировочного набора: {features.shape}, Количество каналов: {n_chan}")
+            return features, labels, len(unique_labels), n_chan, processed_files, skipped_files, file_info
+        except Exception as e:
+            logging.error(f"Ошибка при загрузке и обработке данных: {e}")
+            raise
+
+# model.py
+import torch
+import torch.nn as nn
+from config import Config
+
+class CNN(nn.Module):
+	"""
+    Сверточная нейронная сеть для классификации EEG-сигналов.
+
+    Атрибуты:
+        n_chan (int): Количество каналов в входных данных
+        features (nn.Sequential): Стеки сверточных слоев
+        classifier (nn.Sequential): Полносвязные слои классификатора
+
+    Args:
+        n_cls (int): Количество классов для классификации
+        n_chan (int): Количество каналов EEG
+    """
+
+	def __init__(self, n_cls: int, n_chan: int):
+		super().__init__()
+		self.n_chan = n_chan
+
+		# Feature extraction layers
+		self.features = nn.Sequential(
+			# Block 1: Conv -> BatchNorm -> ReLU -> MaxPool
+			nn.Conv2d(1, 32, kernel_size=3, padding=1),
+			nn.BatchNorm2d(32),
+			nn.ReLU(inplace=True),
+			nn.MaxPool2d(kernel_size=2, stride=2),
+
+			# Block 2: Conv -> BatchNorm -> ReLU -> MaxPool
+			nn.Conv2d(32, 64, kernel_size=3, padding=1),
+			nn.BatchNorm2d(64),
+			nn.ReLU(inplace=True),
+			nn.MaxPool2d(kernel_size=2, stride=2),
+
+			# Block 3: Conv -> BatchNorm -> ReLU -> MaxPool
+			nn.Conv2d(64, 128, kernel_size=3, padding=1),
+			nn.BatchNorm2d(128),
+			nn.ReLU(inplace=True),
+			nn.MaxPool2d(kernel_size=2, stride=2)
+		)
+
+		# Classification layers
+		self.classifier = nn.Sequential(
+			nn.Dropout(0.5),
+			nn.Linear(self._get_fc_input_size(), 128),
+			nn.ReLU(inplace=True),
+			nn.Linear(128, n_cls)
+		)
+
+	def _get_fc_input_size(self) -> int:
+		"""Вычисляет размер входа для первого полносвязного слоя."""
+		with torch.no_grad():
+			# Используем текущее устройство модели для создания тестового тензора
+			device = next(self.parameters()).device
+			input_tensor = torch.zeros(
+				1, 1, self.n_chan, Config.SEGMENT_LENGTH,
+				device=device
+			)
+			output = self.features(input_tensor)
+			return output.view(1, -1).size(1)
+
+	def forward(self, x: torch.Tensor) -> torch.Tensor:
+		"""
+        Прямой проход данных через сеть.
+
+        Args:
+            x (torch.Tensor): Входной тензор формы
+                (batch_size, 1, n_chan, segment_length)
+
+        Returns:
+            torch.Tensor: Выходной тензор формы (batch_size, n_cls)
+        """
+		x = self.features(x)
+		x = x.view(x.size(0), -1)  # Flatten для полносвязных слоев
+		return self.classifier(x)
+
+
+# trainer.py
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, TensorDataset
+from sklearn.model_selection import train_test_split
+from tqdm import tqdm
+from tabulate import tabulate
+from torchmetrics import Precision, Recall, F1Score, Accuracy
+import logging
+from typing import Dict, List, Tuple
+from config import Config
+
+class EEGTrainer:
+    """
+    Класс для обучения и оценки модели EEG.
+
+    Атрибуты:
+        model (nn.Module): Модель для обучения.
+        device (torch.device): Устройство для вычислений (CPU/GPU).
+    """
+
+    def __init__(self, model: nn.Module, device: torch.device):
+        """
+        Инициализация тренера.
+
+        Аргументы:
+            model (nn.Module): Модель для обучения.
+            device (torch.device): Устройство для вычислений.
+        """
+        self.model = model
+        self.device = device
+
+    def create_data_loaders(self, features: np.ndarray, labels: np.ndarray) -> Tuple[DataLoader, torch.Tensor, torch.Tensor]:
+        """
+        Создает DataLoader для обучения и тестовые тензоры.
+
+        Аргументы:
+            features (np.ndarray): Массив признаков.
+            labels (np.ndarray): Массив меток.
+
+        Возвращает:
+            Tuple[DataLoader, torch.Tensor, torch.Tensor]:
+                - train_loader: DataLoader для обучения.
+                - x_test_tensor: Тестовые данные.
+                - y_test_tensor: Тестовые метки.
+        """
+        x_train, x_test, y_train, y_test = train_test_split(features, labels, test_size=Config.TEST_SIZE, random_state=42)
+        x_train_tensor = torch.tensor(x_train, dtype=torch.float32, device=self.device).squeeze()
+        y_train_tensor = torch.tensor(y_train, dtype=torch.long, device=self.device)
+        x_test_tensor = torch.tensor(x_test, dtype=torch.float32, device=self.device).squeeze()
+        y_test_tensor = torch.tensor(y_test, dtype=torch.long, device=self.device)
+        train_ds = TensorDataset(x_train_tensor, y_train_tensor)
+        train_loader = DataLoader(train_ds, batch_size=Config.BATCH_SIZE, shuffle=True)
+        return train_loader, x_test_tensor, y_test_tensor
+
+    def train(self, train_loader: DataLoader, epochs: int, learning_rate: float) -> List[List[str]]:
+        """
+        Обучает модель.
+
+        Аргументы:
+            train_loader (DataLoader): DataLoader для обучения.
+            epochs (int): Количество эпох.
+            learning_rate (float): Скорость обучения.
+
+        Возвращает:
+            List[List[str]]: Результаты обучения для каждой эпохи.
+        """
+        criterion = nn.CrossEntropyLoss()
+        optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
+        scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=Config.LEARNING_RATE_DECAY)
+        epoch_results = []
+
+        for epoch in range(epochs):
+            self.model.train()
+            running_loss = 0.0
+            correct = 0
+            total = 0
+
+            for inputs, labels in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{epochs}", leave=False):
+                optimizer.zero_grad()
+                inputs = inputs.unsqueeze(1).to(self.device)
+                outputs = self.model(inputs)
+                loss = criterion(outputs, labels.to(self.device))
+                loss.backward()
+                optimizer.step()
+
+                running_loss += loss.item()
+                _, predicted = torch.max(outputs.data, 1)
+                total += labels.size(0)
+                correct += (predicted == labels.to(self.device)).sum().item()
+
+            avg_loss = running_loss / len(train_loader)
+            accuracy = correct / total
+
+            current_lr = scheduler.get_last_lr()[0]
+            epoch_results.append([epoch + 1, f"{avg_loss:.4f}", f"{accuracy:.4f}", f"{(current_lr / Config.LEARNING_RATE) * 100:.2f}%"])
+
+            scheduler.step()
+
+        logging.info("\n" + tabulate(epoch_results, headers=["Эпоха", "Средняя потеря", "Точность", "Скорость обучения"], tablefmt="pretty"))
+
+        return epoch_results
+
+    def evaluate(self, x_test_tensor: torch.Tensor, y_test_tensor: torch.Tensor) -> Dict[str, float]:
+        """
+        Оценивает модель на тестовых данных.
+
+        Аргументы:
+            x_test_tensor (torch.Tensor): Тестовые данные.
+            y_test_tensor (torch.Tensor): Тестовые метки.
+
+        Возвращает:
+            Dict[str, float]: Метрики оценки (precision, recall, f1, accuracy).
+        """
+        self.model.eval()
+        with torch.no_grad():
+            pred = torch.max(self.model(x_test_tensor.unsqueeze(1).to(self.device)), dim=1)[1]
+            num_classes = len(np.unique(y_test_tensor.cpu().numpy()))
+            precision_metric = Precision(task="multiclass", num_classes=num_classes).to(self.device)
+            recall_metric = Recall(task="multiclass", num_classes=num_classes).to(self.device)
+            f1_metric = F1Score(task="multiclass", num_classes=num_classes).to(self.device)
+            accuracy_metric = Accuracy(task="multiclass", num_classes=num_classes).to(self.device)
+            precision = precision_metric(pred, y_test_tensor)
+            recall = recall_metric(pred, y_test_tensor)
+            f1 = f1_metric(pred, y_test_tensor)
+            accuracy = accuracy_metric(pred, y_test_tensor)
+            return {
+                'precision': precision.item(),
+                'recall': recall.item(),
+                'f1': f1.item(),
+                'accuracy': accuracy.item(),
+            }
+
+
+# predict.py
+import logging
+import os
+import warnings
+from collections import Counter
+from typing import Dict, List
+import mne
+import numpy as np
+import torch
+from tabulate import tabulate
+from tqdm import tqdm
+from config import Config
+from model import CNN
+
+def setup_logging() -> None:
+    """Настройка логирования."""
+    logging.basicConfig(level=Config.LOGGING_LEVEL, format='%(levelname)s - %(message)s')
+
+def load_model(model_path: str, n_cls: int, n_chan: int, device: torch.device) -> CNN:
+    """
+    Загружает модель из файла.
+
+    Аргументы:
+        model_path (str): Путь к файлу модели.
+        n_cls (int): Количество классов.
+        n_chan (int): Количество каналов.
+        device (torch.device): Устройство для вычислений (CPU/GPU).
+
+    Возвращает:
+        CNN: Загруженная модель.
+    """
+    model = CNN(n_cls, n_chan).to(device)
+    model.load_state_dict(torch.load(model_path))
+    model.eval()
+    return model
+
+def process_file(file_path: str, segment_length: int, model: CNN, device: torch.device, class_labels: List[str]) -> Dict[str, str]:
+    """
+    Обрабатывает один файл и возвращает результаты предсказания.
+
+    Аргументы:
+        file_path (str): Путь к файлу.
+        segment_length (int): Длина сегмента данных.
+        model (CNN): Модель для предсказания.
+        device (torch.device): Устройство для вычислений (CPU/GPU).
+        class_labels (List[str]): Список меток классов.
+
+    Возвращает:
+        Dict[str, str]: Результаты предсказания.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        raw = mne.io.read_raw_edf(file_path, preload=True, verbose=False)
+    raw.filter(Config.LOW_PASS_F, Config.HIGH_PASS_F, verbose=False)
+    raw.crop(2 / raw.info['sfreq'], (len(raw.times) - 2) / raw.info['sfreq'])
+
+    num_segments = len(raw.times) // segment_length
+    x_new_data = [raw.get_data(start=i * segment_length, stop=(i + 1) * segment_length)
+                  for i in range(num_segments) if (i + 1) * segment_length <= len(raw.times)]
+
+    x_new_data = [(segment - np.min(segment)) / (np.max(segment) - np.min(segment))
+                  for segment in x_new_data if np.max(segment) - np.min(segment) > 0]
+
+    x_new_tensor = torch.tensor(np.array(x_new_data).reshape(-1, raw.info['nchan'], segment_length, 1),
+                                dtype=torch.float32, device=device).squeeze()
+
+    with torch.no_grad():
+        outputs = model(x_new_tensor.unsqueeze(1).to(device))
+        probabilities = torch.softmax(outputs, dim=1).cpu().numpy()
+        predicted_classes = torch.max(outputs, 1)[1].cpu().numpy()
+
+    class_counter = Counter(predicted_classes)
+    most_common_class, most_common_count = class_counter.most_common(1)[0]
+    mean_probabilities = np.mean(probabilities, axis=0)
+
+    return {
+        "file": os.path.basename(file_path),
+        "class": class_labels[most_common_class],
+        "confidence": most_common_count / sum(class_counter.values()),
+        "segments": len(x_new_data),
+        "segment_duration": segment_length / raw.info['sfreq'],
+    }
+
+def predict_new_data(model_path: str, pred_path: str, segment_length: int, n_cls: int, n_chan: int, class_labels: List[str]) -> List[List[str]]:
+    """
+    Предсказывает классы для новых данных.
+
+    Аргументы:
+        model_path (str): Путь к файлу модели.
+        pred_path (str): Путь к данным для предсказания.
+        segment_length (int): Длина сегмента данных.
+        n_cls (int): Количество классов.
+        n_chan (int): Количество каналов.
+        class_labels (List[str]): Список меток классов.
+
+    Возвращает:
+        List[List[str]]: Результаты предсказания.
+    """
+    setup_logging()
+
+    if not os.path.exists(pred_path):
+        logging.error(f"Директория {pred_path} не найдена.")
+        return []
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = load_model(model_path, n_cls, n_chan, device)
+
+    results = []
+    files = [file for file in os.listdir(pred_path) if file.endswith('.EDF')]
+
+    if not files:
+        logging.warning(f"Нет файлов .EDF в директории {pred_path}.")
+        return results
+
+    for file in tqdm(files, desc="Обработка файлов"):
+        try:
+            result = process_file(os.path.join(pred_path, file), segment_length, model, device, class_labels)
+            results.append([
+                result["file"],
+                result["class"],
+                f"{result['confidence']:.2%}",
+                result["segments"],
+                f"{result['segment_duration']:.2f} сек",
+            ])
+        except Exception as e:
+            logging.error(f"Ошибка при обработке файла {file}: {str(e)}")
+            results.append([file, "Ошибка", "N/A", "N/A", "N/A"])
+
+    headers = ["Файл", "Класс", "Уверенность", "Сегментов", "Длина сегмента"]
+    logging.info("\nРезультаты предсказания:\n" + tabulate(results, headers=headers, tablefmt="pretty"))
+
+    return results
+
+
+# main.py
+import logging
+import torch
+from torchinfo import summary
+from config import Config
+from data_processor import EEGProcessor
+from model import CNN
+from predict import predict_new_data
+from trainer import EEGTrainer
+
+def main() -> None:
+    """
+    Основная функция для запуска обучения и предсказания модели EEG.
+
+    Этапы:
+    1. Загрузка и обработка данных.
+    2. Обучение модели.
+    3. Оценка модели.
+    4. Сохранение модели.
+    5. Предсказание на новых данных.
+    """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logging.info(f"Используемое устройство: {device}")
+
+    try:
+        # Загрузка и обработка данных
+        input("Нажмите Enter для загрузки данных и формирования датасета...")
+        x, y, n_cls, n_chan, _, _, file_info = EEGProcessor.load_and_process_data(
+            Config.DATA_PATH, Config.LABELS_PATH, Config.SEGMENT_LENGTH
+        )
+        logging.info("Данные успешно загружены и обработаны.")
+        logging.info(file_info)
+
+        # Обучение модели
+        input("Нажмите Enter для продолжения к обучению модели...")
+        model = CNN(n_cls, n_chan).to(device)
+        summary(model, input_size=(Config.BATCH_SIZE, 1, n_chan, Config.SEGMENT_LENGTH))
+
+        trainer = EEGTrainer(model, device)
+        train_loader, x_test_tensor, y_test_tensor = trainer.create_data_loaders(x, y)
+
+        trainer.train(train_loader, Config.EPOCHS, Config.LEARNING_RATE)
+
+        # Оценка модели
+        metrics = trainer.evaluate(x_test_tensor, y_test_tensor)
+        logging.info(f'Precision: {metrics["precision"]:.4f}, Accuracy: {metrics["accuracy"]:.4f}, '
+                     f'Recall: {metrics["recall"]:.4f}, F1 Score: {metrics["f1"]:.4f}')
+
+        # Сохранение модели
+        torch.save(model.state_dict(), Config.MODEL_PATH)
+        logging.info(f"Модель сохранена в: {Config.MODEL_PATH}")
+
+        # Предсказание на новых данных
+        input("Нажмите Enter для предсказаний новых данных...")
+        labels_df = EEGProcessor.load_labels(Config.LABELS_PATH)
+        class_labels = labels_df['key'].dropna().unique().tolist()
+
+        predict_new_data(Config.MODEL_PATH, Config.PRED_PATH, Config.SEGMENT_LENGTH, n_cls, n_chan, class_labels)
+
+    except Exception as e:
+        logging.error(f"Ошибка в основном цикле: {e}")
+        raise
+
+if __name__ == "__main__":
+    main()
+
+
+# ui.py
+import tkinter as tk
+from functools import partial
+from tkinter import scrolledtext, ttk
+from typing import List
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+class EEGUI:
+    """
+    Класс для создания графического интерфейса пользователя (GUI) для анализа EEG.
+
+    Атрибуты:
+        root (tk.Tk): Корневое окно приложения.
+        controller (EEGController): Контроллер для управления логикой приложения.
+    """
+
+    def __init__(self, root: tk.Tk, controller):
+        """
+        Инициализация GUI.
+
+        Аргументы:
+            root (tk.Tk): Корневое окно приложения.
+            controller (EEGController): Контроллер для управления логикой приложения.
+        """
+        self.root = root
+        self.controller = controller
+        self.root.title("EEG Analysis Tool")
+        self.root.geometry("1450x1000")
+        self.setup_ui()
+
+    def setup_ui(self) -> None:
+        """Настройка интерфейса пользователя."""
+        self.main_frame = ttk.Frame(self.root)
+        self.main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        self.setup_left_frame()
+        self.setup_right_frame()
+
+    def setup_left_frame(self) -> None:
+        """Настройка левой панели интерфейса."""
+        self.left_frame = ttk.Frame(self.main_frame)
+        self.left_frame.pack(side=tk.LEFT, fill="both", expand=True)
+        self.setup_buttons_frame()
+        self.setup_settings_frame()
+
+    def setup_buttons_frame(self) -> None:
+        """Настройка панели с кнопками."""
+        self.buttons_frame = ttk.LabelFrame(self.left_frame, text="Actions")
+        self.buttons_frame.pack(fill="x", padx=5, pady=5)
+        ttk.Button(self.buttons_frame, text="Load Data", command=self.controller.load_data).pack(side=tk.LEFT, padx=5, pady=5)
+        ttk.Button(self.buttons_frame, text="Train", command=self.controller.train_model).pack(side=tk.LEFT, padx=5, pady=5)
+        ttk.Button(self.buttons_frame, text="Predict", command=self.controller.predict_data).pack(side=tk.LEFT, padx=5, pady=5)
+        ttk.Button(self.buttons_frame, text="Save Settings", command=self.controller.save_settings).pack(side=tk.LEFT, padx=5, pady=5)
+        ttk.Button(self.buttons_frame, text="Exit", command=self.root.quit).pack(side=tk.LEFT, padx=5, pady=5)
+
+    def setup_settings_frame(self) -> None:
+        """Настройка панели с настройками."""
+        self.settings_frame = ttk.LabelFrame(self.left_frame, text="Settings")
+        self.settings_frame.pack(fill="both", expand=True, padx=5, pady=5)
+        self.entries = {}
+        for i, (setting, value) in enumerate(self.controller.get_settings()):
+            ttk.Label(self.settings_frame, text=f"{setting}:").grid(row=i, column=0, padx=5, pady=5, sticky="e")
+            entry = ttk.Entry(self.settings_frame, width=40)
+            entry.insert(0, str(value))
+            entry.grid(row=i, column=1, padx=5, pady=5, sticky="w")
+            self.entries[setting] = entry
+            if setting in ["Расположение файлов для обучения", "Расположение csv файла с метками",
+                           "Расположение сохранённой модели", "Расположение файлов для предсказаний"]:
+                btn_text = "Выбрать файл" if setting == "Расположение csv файла с метками" else "Выбрать папку"
+                btn_command = partial(self.controller.select_path, setting, is_file=setting == "Расположение csv файла с метками")
+                ttk.Button(self.settings_frame, text=btn_text, command=btn_command).grid(row=i, column=2, padx=5, pady=5)
+
+    def setup_right_frame(self) -> None:
+        """Настройка правой панели интерфейса."""
+        self.right_frame = ttk.Frame(self.main_frame)
+        self.right_frame.pack(side=tk.RIGHT, fill="both", expand=True)
+        self.setup_status_frame()
+        self.setup_plot_frame()
+
+    def setup_status_frame(self) -> None:
+        """Настройка панели статуса."""
+        self.status_frame = ttk.LabelFrame(self.right_frame, text="Status")
+        self.status_frame.pack(fill="both", expand=True, padx=5, pady=5)
+        self.status_text = scrolledtext.ScrolledText(self.status_frame, wrap=tk.WORD, state="disabled")
+        self.status_text.pack(fill="both", expand=True, padx=5, pady=5)
+        self.progress = ttk.Progressbar(self.status_frame, orient="horizontal", length=400, mode="determinate")
+        self.progress.pack(fill="x", padx=5, pady=5)
+
+    def setup_plot_frame(self) -> None:
+        """Настройка панели для отображения графиков."""
+        self.plot_frame = ttk.LabelFrame(self.right_frame, text="Training Plot")
+        self.plot_frame.pack(fill="both", expand=True, padx=5, pady=5)
+        self.fig, self.ax = plt.subplots(figsize=(8, 4))
+        self.ax2 = self.ax.twinx()
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.plot_frame)
+        self.canvas.get_tk_widget().pack(fill="both", expand=True)
+
+    def log_status(self, message: str) -> None:
+        """
+        Логирует сообщение в панель статуса.
+
+        Аргументы:
+            message (str): Сообщение для логирования.
+        """
+        self.status_text.config(state="normal")
+        self.status_text.insert(tk.END, message + "\n")
+        self.status_text.config(state="disabled")
+        self.status_text.yview(tk.END)
+
+    def update_progress(self, value: int) -> None:
+        """
+        Обновляет прогресс-бар.
+
+        Аргументы:
+            value (int): Значение прогресса (0-100).
+        """
+        self.progress["value"] = value
+        self.root.update_idletasks()
+
+    def plot_training_results(self, train_losses: List[float], train_accuracies: List[float]) -> None:
+        """
+        Отображает график потерь и точности.
+
+        Аргументы:
+            train_losses (List[float]): Список потерь.
+            train_accuracies (List[float]): Список точности.
+        """
+        self.ax.clear()
+        self.ax2.clear()
+        epochs = range(1, len(train_losses) + 1)
+        self.ax.set_xticks(epochs)
+        self.ax.plot(epochs, train_losses, label="Training Loss", color="red", linewidth=1, marker="o", markersize=5)
+        self.ax.set_xlabel("Epochs")
+        self.ax.set_ylabel("Loss", color="red")
+        self.ax.tick_params(axis="y", labelcolor="red")
+        self.ax2.plot(epochs, train_accuracies, label="Training Accuracy", color="blue", linewidth=1, marker="o", markersize=5)
+        self.ax2.set_ylabel("Accuracy", color="blue")
+        self.ax2.tick_params(axis="y", labelcolor="blue")
+        self.ax.axhline(0.5, color="gray", linestyle="--", alpha=0.5)
+        self.ax2.axhline(0.5, color="gray", linestyle="--", alpha=0.5)
+        self.ax.grid(True, linestyle="--", alpha=0.5)
+        self.ax2.grid(True, linestyle="--", alpha=0.5)
+        self.ax.set_title("Training Loss and Accuracy")
+        self.ax2.yaxis.set_label_coords(1.1, 0.5)
+        self.fig.legend(loc="upper right")
+        self.canvas.draw()
+
+
+# controller.py
+import os
+import threading
+import tkinter as tk
+from tkinter import filedialog, messagebox
+from typing import List, Tuple
+import torch
+from tabulate import tabulate
+from config import Config
+from data_processor import EEGProcessor
+from model import CNN
+from predict import predict_new_data
+from trainer import EEGTrainer
+
+class EEGController:
+    """
+    Контроллер для управления логикой приложения EEG Analysis Tool.
+
+    Атрибуты:
+        ui (EEGUI): Графический интерфейс пользователя.
+        device (torch.device): Устройство для вычислений (CPU/GPU).
+    """
+
+    def __init__(self, ui=None):
+        """
+        Инициализация контроллера.
+
+        Аргументы:
+            ui (EEGUI, optional): Графический интерфейс пользователя. По умолчанию None.
+        """
+        self.ui = ui
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if self.ui:
+            self.ui.log_status(f"Используемое устройство: {self.device}")
+
+    def set_ui(self, ui):
+        """
+        Устанавливает графический интерфейс пользователя.
+
+        Аргументы:
+            ui (EEGUI): Графический интерфейс пользователя.
+        """
+        self.ui = ui
+        self.ui.log_status(f"Используемое устройство: {self.device}")
+
+    @staticmethod
+    def get_settings() -> List[Tuple[str, str]]:
+        """
+        Возвращает текущие настройки.
+
+        Возвращает:
+            List[Tuple[str, str]]: Список кортежей (название настройки, значение).
+        """
+        return [
+            ("Расположение файлов для обучения", Config.DATA_PATH),
+            ("Расположение csv файла с метками", Config.LABELS_PATH),
+            ("Расположение сохранённой модели", Config.MODEL_PATH),
+            ("Расположение файлов для предсказаний", Config.PRED_PATH),
+            ("Длина одного сегмента данных", Config.SEGMENT_LENGTH),
+            ("Размер батча", Config.BATCH_SIZE),
+            ("Количество эпох обучения", Config.EPOCHS),
+            ("Скорость обучения", Config.LEARNING_RATE),
+            ("Размер тестового набора", Config.TEST_SIZE),
+            ("Нижний порог", Config.LOW_PASS_F),
+            ("Верхний порог", Config.HIGH_PASS_F),
+            ("Коэффициент уменьшения скорости", Config.LEARNING_RATE_DECAY),
+        ]
+
+    def select_path(self, setting: str, is_file: bool = False) -> None:
+        """
+        Выбирает путь к файлу или директории.
+
+        Аргументы:
+            setting (str): Название настройки.
+            is_file (bool, optional): Если True, выбирается файл. По умолчанию False (выбор директории).
+        """
+        initial_dir = os.path.dirname(self.ui.entries[setting].get()) if self.ui.entries[setting].get() else os.getcwd()
+        if is_file:
+            path = filedialog.askopenfilename(initialdir=initial_dir, title=f"Выберите файл для {setting}")
+        else:
+            path = filedialog.askdirectory(initialdir=initial_dir, title=f"Выберите папку для {setting}")
+        if path:
+            self.ui.entries[setting].delete(0, tk.END)
+            self.ui.entries[setting].insert(0, path)
+
+    def load_data(self) -> None:
+        """Загружает данные в отдельном потоке."""
+        threading.Thread(target=self._load_data_thread, daemon=True).start()
+
+    def _load_data_thread(self) -> None:
+        """Поток для загрузки данных."""
+        self.ui.log_status("Загрузка данных...")
+        self.ui.update_progress(0)
+        try:
+            self.x, self.y, self.n_cls, self.n_chan, processed_files, skipped_files, file_info = EEGProcessor.load_and_process_data(
+                Config.DATA_PATH, Config.LABELS_PATH, Config.SEGMENT_LENGTH
+            )
+            labels_df = EEGProcessor.load_labels(Config.LABELS_PATH)
+            self.class_labels = labels_df['key'].dropna().unique().tolist()
+            total_files = len([f for f in os.listdir(Config.DATA_PATH) if f.endswith('.EDF')])
+            self.ui.log_status(file_info)
+            self.ui.log_status("Данные успешно загружены и предобработаны!")
+            self.ui.log_status(f"Всего файлов в папке: {total_files}")
+            self.ui.log_status(f"Обработано файлов: {processed_files}")
+            self.ui.log_status(f"Пропущено файлов (без меток): {skipped_files}")
+            self.ui.log_status(f"Количество классов: {self.n_cls}, Классы: {', '.join(self.class_labels)}")
+            self.ui.log_status(f"Размер тренировочного набора: {self.x.shape}")
+            self.ui.log_status(f"Количество каналов: {self.n_chan}")
+            self.ui.update_progress(100)
+        except Exception as e:
+            self.handle_error("Ошибка при загрузке данных", e)
+
+    def train_model(self) -> None:
+        """Запускает обучение модели в отдельном потоке."""
+        threading.Thread(target=self._train_model_thread, daemon=True).start()
+
+    def _train_model_thread(self) -> None:
+        """Поток для обучения модели."""
+        self.ui.log_status("Идет обучение модели...")
+        self.ui.update_progress(0)
+        try:
+            model = CNN(self.n_cls, self.n_chan).to(self.device)
+            trainer = EEGTrainer(model, self.device)
+            train_loader, x_test_tensor, y_test_tensor = trainer.create_data_loaders(self.x, self.y)
+            epoch_results = trainer.train(train_loader, Config.EPOCHS, Config.LEARNING_RATE)
+            train_losses = [float(result[1]) for result in epoch_results]
+            train_accuracies = [float(result[2]) for result in epoch_results]
+            self.ui.plot_training_results(train_losses, train_accuracies)
+            table = tabulate(epoch_results, headers=["Эпоха", "Средняя потеря", "Точность", "Скорость обучения"],
+                             tablefmt="pretty")
+            self.ui.log_status("\nРезультаты обучения:")
+            self.ui.log_status(table)
+            metrics = trainer.evaluate(x_test_tensor, y_test_tensor)
+            self.ui.log_status("\nModel Metrics:")
+            self.ui.log_status(f"Precision: {metrics['precision']:.4f}")
+            self.ui.log_status(f"Recall: {metrics['recall']:.4f}")
+            self.ui.log_status(f"F1 Score: {metrics['f1']:.4f}")
+            self.ui.log_status(f"Accuracy: {metrics['accuracy']:.4f}")
+            torch.save(model.state_dict(), Config.MODEL_PATH)
+            self.ui.log_status(f"Model saved to {Config.MODEL_PATH}")
+            self.ui.update_progress(100)
+        except Exception as e:
+            self.handle_error("Ошибка при обучении модели", e)
+
+    def predict_data(self) -> None:
+        """Запускает предсказание в отдельном потоке."""
+        threading.Thread(target=self._predict_data_thread, daemon=True).start()
+
+    def _predict_data_thread(self) -> None:
+        """Поток для предсказания."""
+        self.ui.log_status("Идет предсказание...")
+        self.ui.update_progress(0)
+        try:
+            results = predict_new_data(Config.MODEL_PATH, Config.PRED_PATH, Config.SEGMENT_LENGTH, self.n_cls,
+                                       self.n_chan, self.class_labels)
+            self.ui.log_status("\nРезультаты предсказания:")
+            self.ui.status_text.config(state="normal")
+            self.ui.status_text.config(state="disabled")
+            table_header = "| {:<35} | {:<5} | {:<11} | {:<9} | {:<14} |\n".format(
+                "Файл", "Класс", "Уверенность", "Сегментов", "Длина сегмента"
+            )
+            separator = "-" * len(table_header) + "\n"
+            self.ui.status_text.config(state="normal")
+            self.ui.status_text.insert(tk.END, separator)
+            self.ui.status_text.insert(tk.END, table_header)
+            self.ui.status_text.insert(tk.END, separator)
+
+            for result in results:
+                if isinstance(result, list) and len(result) >= 3:
+                    file_name, predicted_class, confidence, segments, segment_length = result
+                    confidence_percent = float(confidence.strip('%'))
+                    table_row = "| {:<35} | {:<5} | {:<11} | {:<9} | {:<14} |\n".format(
+                        file_name, predicted_class, confidence, segments, segment_length
+                    )
+                    if confidence_percent >= 90:
+                        self.ui.status_text.tag_config("green", foreground="green")
+                        self.ui.status_text.insert(tk.END, table_row, "green")
+                    elif confidence_percent >= 70:
+                        self.ui.status_text.tag_config("orange", foreground="orange")
+                        self.ui.status_text.insert(tk.END, table_row, "orange")
+                    else:
+                        self.ui.status_text.tag_config("red", foreground="red")
+                        self.ui.status_text.insert(tk.END, table_row, "red")
+
+            self.ui.status_text.insert(tk.END, separator)
+            self.ui.status_text.config(state="disabled")
+            self.ui.log_status("Предсказание завершено.")
+            self.ui.update_progress(100)
+        except Exception as e:
+            self.handle_error("Ошибка при предсказании", e)
+
+    def save_settings(self) -> None:
+        """Сохраняет настройки."""
+        try:
+            key_mapping = {
+                "Расположение файлов для обучения": "DATA_PATH",
+                "Расположение csv файла с метками": "LABELS_PATH",
+                "Расположение сохранённой модели": "MODEL_PATH",
+                "Расположение файлов для предсказаний": "PRED_PATH",
+                "Длина одного сегмента данных": "SEGMENT_LENGTH",
+                "Размер батча": "BATCH_SIZE",
+                "Количество эпох обучения": "EPOCHS",
+                "Скорость обучения": "LEARNING_RATE",
+                "Размер тестового набора": "TEST_SIZE",
+                "Нижний порог": "LOW_PASS_F",
+                "Верхний порог": "HIGH_PASS_F",
+                "Коэффициент уменьшения скорости": "LEARNING_RATE_DECAY",
+            }
+            for russian_key, entry in self.ui.entries.items():
+                value = entry.get()
+                english_key = key_mapping.get(russian_key)
+                if english_key:
+                    if english_key in ["SEGMENT_LENGTH", "BATCH_SIZE", "EPOCHS"]:
+                        value = int(value)
+                    elif english_key in ["LEARNING_RATE", "TEST_SIZE", "LOW_PASS_F", "HIGH_PASS_F",
+                                         "LEARNING_RATE_DECAY"]:
+                        value = float(value)
+                    else:
+                        value = str(value)
+                    setattr(Config, english_key, value)
+            Config.save_to_file()
+            self.ui.log_status("Конфигурация успешно сохранена и обновлена.")
+        except Exception as e:
+            self.handle_error("Ошибка при сохранении конфигурации", e)
+
+    def handle_error(self, message: str, error: Exception) -> None:
+        """
+        Обрабатывает ошибки и выводит сообщение.
+
+        Аргументы:
+            message (str): Сообщение об ошибке.
+            error (Exception): Объект исключения.
+        """
+        self.ui.log_status(f"{message}: {error}")
+        messagebox.showerror("Error", f"{message}: {error}")
+        self.ui.update_progress(0)
+
+
+# EEGApp.py
+import tkinter as tk
+from ui import EEGUI
+from controller import EEGController
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    controller = EEGController()
+    ui = EEGUI(root, controller)
+    controller.set_ui(ui)
+    root.mainloop()
