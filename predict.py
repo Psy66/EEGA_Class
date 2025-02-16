@@ -79,6 +79,7 @@ def process_file(file_path: str, segment_length: int, model: CNN, device: torch.
         "confidence": most_common_count / sum(class_counter.values()),
         "segments": len(x_new_data),
         "segment_duration": segment_length / raw.info['sfreq'],
+        "mean_probabilities": mean_probabilities.tolist(),
     }
 
 def predict_new_data(model_path: str, pred_path: str, segment_length: int, n_cls: int, n_chan: int, class_labels: List[str]) -> List[List[str]]:
