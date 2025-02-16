@@ -3,7 +3,7 @@ import os
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox
-from typing import List, Tuple
+from typing import List, Tuple, Callable
 import torch
 from tabulate import tabulate
 from config import Config
@@ -61,9 +61,9 @@ class EEGController:
             ("Количество эпох обучения", Config.EPOCHS),
             ("Скорость обучения", Config.LEARNING_RATE),
             ("Размер тестового набора", Config.TEST_SIZE),
-            ("Нижний порог", Config.LOW_PASS_F),
-            ("Верхний порог", Config.HIGH_PASS_F),
-            ("Коэффициент уменьшения скорости", Config.LEARNING_RATE_DECAY),
+            ("Нижний порог фильтрации сигнала ЭЭГ", Config.LOW_PASS_F),
+            ("Верхний порог фильтрации сигнала ЭЭГ", Config.HIGH_PASS_F),
+            ("Коэффициент снижения скорости обучения", Config.LEARNING_RATE_DECAY),
         ]
 
     def select_path(self, setting: str, is_file: bool = False) -> None:
@@ -83,145 +83,161 @@ class EEGController:
             self.ui.entries[setting].delete(0, tk.END)
             self.ui.entries[setting].insert(0, path)
 
-    def load_data(self) -> None:
-        """Загружает данные в отдельном потоке."""
-        threading.Thread(target=self._load_data_thread, daemon=True).start()
+    @staticmethod
+    def run_in_thread(func: Callable) -> Callable:
+        """
+        Декоратор для запуска функции в отдельном потоке.
 
-    def _load_data_thread(self) -> None:
-        """Поток для загрузки данных."""
+        Аргументы:
+            func (Callable): Функция, которую нужно запустить в отдельном потоке.
+
+        Возвращает:
+            Callable: Обернутая функция.
+        """
+        def wrapper(*args, **kwargs):
+            threading.Thread(target=func, args=args, kwargs=kwargs, daemon=True).start()
+        return wrapper
+
+    @staticmethod
+    def handle_errors(func: Callable) -> Callable:
+        """
+        Декоратор для обработки ошибок.
+
+        Аргументы:
+            func (Callable): Функция, которую нужно обернуть.
+
+        Возвращает:
+            Callable: Обернутая функция.
+        """
+        def wrapper(self, *args, **kwargs):
+            try:
+                return func(self, *args, **kwargs)
+            except Exception as e:
+                self.handle_error(f"Ошибка в функции {func.__name__}", e)
+        return wrapper
+
+    @run_in_thread
+    @handle_errors
+    def load_data(self) -> None:
+        """Загружает данные."""
         self.ui.log_status("Загрузка данных...")
         self.ui.update_progress(0)
-        try:
-            self.x, self.y, self.n_cls, self.n_chan, processed_files, skipped_files, file_info = EEGProcessor.load_and_process_data(
-                Config.DATA_PATH, Config.LABELS_PATH, Config.SEGMENT_LENGTH
-            )
-            labels_df = EEGProcessor.load_labels(Config.LABELS_PATH)
-            self.class_labels = labels_df['key'].dropna().unique().tolist()
-            total_files = len([f for f in os.listdir(Config.DATA_PATH) if f.endswith('.EDF')])
-            self.ui.log_status(file_info)
-            self.ui.log_status("Данные успешно загружены и предобработаны!")
-            self.ui.log_status(f"Всего файлов в папке: {total_files}")
-            self.ui.log_status(f"Обработано файлов: {processed_files}")
-            self.ui.log_status(f"Пропущено файлов (без меток): {skipped_files}")
-            self.ui.log_status(f"Количество классов: {self.n_cls}, Классы: {', '.join(self.class_labels)}")
-            self.ui.log_status(f"Размер тренировочного набора: {self.x.shape}")
-            self.ui.log_status(f"Количество каналов: {self.n_chan}")
-            self.ui.update_progress(100)
-        except Exception as e:
-            self.handle_error("Ошибка при загрузке данных", e)
+        self.x, self.y, self.n_cls, self.n_chan, processed_files, skipped_files, file_info = EEGProcessor.load_and_process_data(
+            Config.DATA_PATH, Config.LABELS_PATH, Config.SEGMENT_LENGTH
+        )
+        labels_df = EEGProcessor.load_labels(Config.LABELS_PATH)
+        self.class_labels = labels_df['key'].dropna().unique().tolist()
+        total_files = len([f for f in os.listdir(Config.DATA_PATH) if f.endswith('.EDF')])
+        self.ui.log_status(file_info)
+        self.ui.log_status("Данные успешно загружены и предобработаны!")
+        self.ui.log_status(f"Всего файлов в папке: {total_files}")
+        self.ui.log_status(f"Обработано файлов: {processed_files}")
+        self.ui.log_status(f"Пропущено файлов (без меток): {skipped_files}")
+        self.ui.log_status(f"Количество классов: {self.n_cls}, Классы: {', '.join(self.class_labels)}")
+        self.ui.log_status(f"Размер тренировочного набора: {self.x.shape}")
+        self.ui.log_status(f"Количество каналов: {self.n_chan}")
+        self.ui.update_progress(100)
 
+    @run_in_thread
+    @handle_errors
     def train_model(self) -> None:
-        """Запускает обучение модели в отдельном потоке."""
-        threading.Thread(target=self._train_model_thread, daemon=True).start()
-
-    def _train_model_thread(self) -> None:
-        """Поток для обучения модели."""
+        """Запускает обучение модели."""
         self.ui.log_status("Идет обучение модели...")
         self.ui.update_progress(0)
-        try:
-            model = CNN(self.n_cls, self.n_chan).to(self.device)
-            trainer = EEGTrainer(model, self.device)
-            train_loader, x_test_tensor, y_test_tensor = trainer.create_data_loaders(self.x, self.y)
-            epoch_results = trainer.train(train_loader, Config.EPOCHS, Config.LEARNING_RATE)
-            train_losses = [float(result[1]) for result in epoch_results]
-            train_accuracies = [float(result[2]) for result in epoch_results]
-            self.ui.plot_training_results(train_losses, train_accuracies)
-            table = tabulate(epoch_results, headers=["Эпоха", "Средняя потеря", "Точность", "Скорость обучения"],
-                             tablefmt="pretty")
-            self.ui.log_status("\nРезультаты обучения:")
-            self.ui.log_status(table)
-            metrics = trainer.evaluate(x_test_tensor, y_test_tensor)
-            self.ui.log_status("\nModel Metrics:")
-            self.ui.log_status(f"Precision: {metrics['precision']:.4f}")
-            self.ui.log_status(f"Recall: {metrics['recall']:.4f}")
-            self.ui.log_status(f"F1 Score: {metrics['f1']:.4f}")
-            self.ui.log_status(f"Accuracy: {metrics['accuracy']:.4f}")
-            torch.save(model.state_dict(), Config.MODEL_PATH)
-            self.ui.log_status(f"Model saved to {Config.MODEL_PATH}")
-            self.ui.update_progress(100)
-        except Exception as e:
-            self.handle_error("Ошибка при обучении модели", e)
+        model = CNN(self.n_cls, self.n_chan).to(self.device)
+        trainer = EEGTrainer(model, self.device)
+        train_loader, x_test_tensor, y_test_tensor = trainer.create_data_loaders(self.x, self.y)
+        epoch_results = trainer.train(train_loader, Config.EPOCHS, Config.LEARNING_RATE)
+        train_losses = [float(result[1]) for result in epoch_results]
+        train_accuracies = [float(result[2]) for result in epoch_results]
+        self.ui.plot_training_results(train_losses, train_accuracies)
+        table = tabulate(epoch_results, headers=["Эпоха", "Средняя потеря", "Точность", "Скорость обучения"],
+                         tablefmt="pretty")
+        self.ui.log_status("\nРезультаты обучения:")
+        self.ui.log_status(table)
+        metrics = trainer.evaluate(x_test_tensor, y_test_tensor)
+        self.ui.log_status("\nModel Metrics:")
+        self.ui.log_status(f"Precision: {metrics['precision']:.4f}")
+        self.ui.log_status(f"Recall: {metrics['recall']:.4f}")
+        self.ui.log_status(f"F1 Score: {metrics['f1']:.4f}")
+        self.ui.log_status(f"Accuracy: {metrics['accuracy']:.4f}")
+        torch.save(model.state_dict(), Config.MODEL_PATH)
+        self.ui.log_status(f"Модель сохранена в: {Config.MODEL_PATH}")
+        self.ui.update_progress(100)
 
+    @run_in_thread
+    @handle_errors
     def predict_data(self) -> None:
-        """Запускает предсказание в отдельном потоке."""
-        threading.Thread(target=self._predict_data_thread, daemon=True).start()
-
-    def _predict_data_thread(self) -> None:
-        """Поток для предсказания."""
+        """Запускает предсказание."""
         self.ui.log_status("Идет предсказание...")
         self.ui.update_progress(0)
-        try:
-            results = predict_new_data(Config.MODEL_PATH, Config.PRED_PATH, Config.SEGMENT_LENGTH, self.n_cls,
-                                       self.n_chan, self.class_labels)
-            self.ui.log_status("\nРезультаты предсказания:")
-            self.ui.status_text.config(state="normal")
-            self.ui.status_text.config(state="disabled")
-            table_header = "| {:<35} | {:<5} | {:<11} | {:<9} | {:<14} |\n".format(
-                "Файл", "Класс", "Уверенность", "Сегментов", "Длина сегмента"
-            )
-            separator = "-" * len(table_header) + "\n"
-            self.ui.status_text.config(state="normal")
-            self.ui.status_text.insert(tk.END, separator)
-            self.ui.status_text.insert(tk.END, table_header)
-            self.ui.status_text.insert(tk.END, separator)
+        results = predict_new_data(Config.MODEL_PATH, Config.PRED_PATH, Config.SEGMENT_LENGTH, self.n_cls,
+                                   self.n_chan, self.class_labels)
+        self.ui.log_status("\nРезультаты предсказания:")
+        self.ui.status_text.config(state="normal")
+        self.ui.status_text.config(state="disabled")
+        table_header = "| {:<35} | {:<5} | {:<11} | {:<9} | {:<14} |\n".format(
+            "Файл", "Класс", "Уверенность", "Сегментов", "Длина сегмента"
+        )
+        separator = "-" * len(table_header) + "\n"
+        self.ui.status_text.config(state="normal")
+        self.ui.status_text.insert(tk.END, separator)
+        self.ui.status_text.insert(tk.END, table_header)
+        self.ui.status_text.insert(tk.END, separator)
 
-            for result in results:
-                if isinstance(result, list) and len(result) >= 3:
-                    file_name, predicted_class, confidence, segments, segment_length = result
-                    confidence_percent = float(confidence.strip('%'))
-                    table_row = "| {:<35} | {:<5} | {:<11} | {:<9} | {:<14} |\n".format(
-                        file_name, predicted_class, confidence, segments, segment_length
-                    )
-                    if confidence_percent >= 90:
-                        self.ui.status_text.tag_config("green", foreground="green")
-                        self.ui.status_text.insert(tk.END, table_row, "green")
-                    elif confidence_percent >= 70:
-                        self.ui.status_text.tag_config("orange", foreground="orange")
-                        self.ui.status_text.insert(tk.END, table_row, "orange")
-                    else:
-                        self.ui.status_text.tag_config("red", foreground="red")
-                        self.ui.status_text.insert(tk.END, table_row, "red")
+        for result in results:
+            if isinstance(result, list) and len(result) >= 3:
+                file_name, predicted_class, confidence, segments, segment_length = result
+                confidence_percent = float(confidence.strip('%'))
+                table_row = "| {:<35} | {:<5} | {:<11} | {:<9} | {:<14} |\n".format(
+                    file_name, predicted_class, confidence, segments, segment_length
+                )
+                if confidence_percent >= 90:
+                    self.ui.status_text.tag_config("green", foreground="green")
+                    self.ui.status_text.insert(tk.END, table_row, "green")
+                elif confidence_percent >= 70:
+                    self.ui.status_text.tag_config("orange", foreground="orange")
+                    self.ui.status_text.insert(tk.END, table_row, "orange")
+                else:
+                    self.ui.status_text.tag_config("red", foreground="red")
+                    self.ui.status_text.insert(tk.END, table_row, "red")
 
-            self.ui.status_text.insert(tk.END, separator)
-            self.ui.status_text.config(state="disabled")
-            self.ui.log_status("Предсказание завершено.")
-            self.ui.update_progress(100)
-        except Exception as e:
-            self.handle_error("Ошибка при предсказании", e)
+        self.ui.status_text.insert(tk.END, separator)
+        self.ui.status_text.config(state="disabled")
+        self.ui.log_status("Предсказание завершено.")
+        self.ui.update_progress(100)
 
+    @handle_errors
     def save_settings(self) -> None:
         """Сохраняет настройки."""
-        try:
-            key_mapping = {
-                "Расположение файлов для обучения": "DATA_PATH",
-                "Расположение csv файла с метками": "LABELS_PATH",
-                "Расположение сохранённой модели": "MODEL_PATH",
-                "Расположение файлов для предсказаний": "PRED_PATH",
-                "Длина одного сегмента данных": "SEGMENT_LENGTH",
-                "Размер батча": "BATCH_SIZE",
-                "Количество эпох обучения": "EPOCHS",
-                "Скорость обучения": "LEARNING_RATE",
-                "Размер тестового набора": "TEST_SIZE",
-                "Нижний порог": "LOW_PASS_F",
-                "Верхний порог": "HIGH_PASS_F",
-                "Коэффициент уменьшения скорости": "LEARNING_RATE_DECAY",
-            }
-            for russian_key, entry in self.ui.entries.items():
-                value = entry.get()
-                english_key = key_mapping.get(russian_key)
-                if english_key:
-                    if english_key in ["SEGMENT_LENGTH", "BATCH_SIZE", "EPOCHS"]:
-                        value = int(value)
-                    elif english_key in ["LEARNING_RATE", "TEST_SIZE", "LOW_PASS_F", "HIGH_PASS_F",
-                                         "LEARNING_RATE_DECAY"]:
-                        value = float(value)
-                    else:
-                        value = str(value)
-                    setattr(Config, english_key, value)
-            Config.save_to_file()
-            self.ui.log_status("Конфигурация успешно сохранена и обновлена.")
-        except Exception as e:
-            self.handle_error("Ошибка при сохранении конфигурации", e)
+        key_mapping = {
+            "Расположение файлов для обучения": "DATA_PATH",
+            "Расположение csv файла с метками": "LABELS_PATH",
+            "Расположение сохранённой модели": "MODEL_PATH",
+            "Расположение файлов для предсказаний": "PRED_PATH",
+            "Длина одного сегмента данных": "SEGMENT_LENGTH",
+            "Размер батча": "BATCH_SIZE",
+            "Количество эпох обучения": "EPOCHS",
+            "Скорость обучения": "LEARNING_RATE",
+            "Размер тестового набора": "TEST_SIZE",
+            "Нижний порог фильтрации сигнала ЭЭГ": "LOW_PASS_F",
+            "Верхний порог фильтрации сигнала ЭЭГ": "HIGH_PASS_F",
+            "Коэффициент снижения скорости обучения": "LEARNING_RATE_DECAY",
+        }
+        for russian_key, entry in self.ui.entries.items():
+            value = entry.get()
+            english_key = key_mapping.get(russian_key)
+            if english_key:
+                if english_key in ["SEGMENT_LENGTH", "BATCH_SIZE", "EPOCHS"]:
+                    value = int(value)
+                elif english_key in ["LEARNING_RATE", "TEST_SIZE", "LOW_PASS_F", "HIGH_PASS_F",
+                                     "LEARNING_RATE_DECAY"]:
+                    value = float(value)
+                else:
+                    value = str(value)
+                setattr(Config, english_key, value)
+        Config.save_to_file()
+        self.ui.log_status("Конфигурация успешно сохранена и обновлена.")
 
     def handle_error(self, message: str, error: Exception) -> None:
         """
