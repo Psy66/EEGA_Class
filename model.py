@@ -1,8 +1,7 @@
 # model.py
-import torch.nn as nn
 import torch
+import torch.nn as nn
 from config import Config
-from typing import Optional
 
 class CNN(nn.Module):
 	"""

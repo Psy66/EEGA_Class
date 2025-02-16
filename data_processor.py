@@ -1,11 +1,11 @@
 # data_processor.py
+import logging
 import os
 import warnings
-import logging
+from typing import Tuple
+import mne
 import numpy as np
 import pandas as pd
-import mne
-from typing import Tuple, Optional, List
 from config import Config
 
 class EEGProcessor:
