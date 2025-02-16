@@ -66,8 +66,8 @@ class EEGUI:
             self.entries[setting] = entry
             if setting in ["Расположение файлов для обучения", "Расположение csv файла с метками",
                            "Расположение сохранённой модели", "Расположение файлов для предсказаний"]:
-                btn_text = "Выбрать файл" if setting == "Расположение csv файла с метками" else "Выбрать папку"
-                btn_command = partial(self.controller.select_path, setting, is_file=setting == "Расположение csv файла с метками")
+                btn_text = "Выбрать файл" if setting == "Расположение csv файла с метками" or setting == "Расположение сохранённой модели" else "Выбрать папку"
+                btn_command = partial(self.controller.select_path, setting, is_file=setting == "Расположение csv файла с метками" or setting == "Расположение сохранённой модели")
                 ttk.Button(self.settings_frame, text=btn_text, command=btn_command).grid(row=i, column=2, padx=5, pady=5)
 
     def setup_right_frame(self) -> None:
