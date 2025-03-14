@@ -1,5 +1,10 @@
 ## EEG Classification Software
 
+![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
+![PyTorch](https://img.shields.io/badge/PyTorch-1.9%2B-orange)
+![MNE](https://img.shields.io/badge/MNE-0.23%2B-green)
+![License](https://img.shields.io/badge/License-MIT-yellow)
+
 This project is designed to classify EEG signals using a convolutional neural network (CNN). The program uses the PyTorch library to train the model on data recorded in EDF files. The model is trained on signal segments that are filtered, normalized, and split into parts of a specified length. Classification is performed based on the labels specified in the CSV file.
 
 ---
