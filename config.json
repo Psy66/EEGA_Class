@@ -4,12 +4,12 @@
     "LABELS_PATH": "D:/EEGBASE/Penetratio/File.csv",
     "MODEL_PATH": "D:/EEGBASE/Penetratio/model.pth",
     "PRED_PATH": "D:/EEGBASE/Penetratio/TEST/",
-    "SEGMENT_LENGTH": 1000,
+    "SEGMENT_LENGTH": 1250,
     "BATCH_SIZE": 32,
     "EPOCHS": 10,
     "LEARNING_RATE": 0.001,
     "TEST_SIZE": 0.2,
-    "LOW_PASS_F": 0.5,
+    "LOW_PASS_F": 0.1,
     "HIGH_PASS_F": 70.0,
     "LEARNING_RATE_DECAY": 0.8
 }

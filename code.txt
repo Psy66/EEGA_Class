@@ -101,6 +101,7 @@ Config.load_from_file()
 Config.log_config()  # Логируем текущую конфигурацию
 logging.info("Конфигурация успешно загружена.")
 
+
 # data_processor.py
 import logging
 import os
