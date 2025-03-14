@@ -8,22 +8,22 @@ from typing import Any, Dict
 @dataclass
 class Config:
     """
-    Класс для хранения и управления конфигурацией приложения.
+    Class for storing and managing application configuration.
 
-    Атрибуты:
-        LOGGING_LEVEL (int): Уровень логирования (по умолчанию: logging.INFO).
-        DATA_PATH (str): Путь к данным для обучения.
-        LABELS_PATH (str): Путь к файлу с метками.
-        MODEL_PATH (str): Путь для сохранения модели.
-        PRED_PATH (str): Путь к данным для предсказания.
-        SEGMENT_LENGTH (int): Длина сегмента данных.
-        BATCH_SIZE (int): Размер батча.
-        EPOCHS (int): Количество эпох обучения.
-        LEARNING_RATE (float): Скорость обучения.
-        TEST_SIZE (float): Размер тестового набора.
-        LOW_PASS_F (float): Нижний порог фильтрации.
-        HIGH_PASS_F (float): Верхний порог фильтрации.
-        LEARNING_RATE_DECAY (float): Коэффициент уменьшения скорости обучения.
+    Attributes:
+        LOGGING_LEVEL (int): Logging level (default: logging.INFO).
+        DATA_PATH (str): Path to the training data.
+        LABELS_PATH (str): Path to the labels file.
+        MODEL_PATH (str): Path to save the model.
+        PRED_PATH (str): Path to the prediction data.
+        SEGMENT_LENGTH (int): Length of the data segment.
+        BATCH_SIZE (int): Batch size.
+        EPOCHS (int): Number of training epochs.
+        LEARNING_RATE (float): Learning rate.
+        TEST_SIZE (float): Size of the test set.
+        LOW_PASS_F (float): Lower filtering threshold.
+        HIGH_PASS_F (float): Upper filtering threshold.
+        LEARNING_RATE_DECAY (float): Learning rate decay coefficient.
     """
     LOGGING_LEVEL: int = logging.INFO
     DATA_PATH: str = r"D:/EEGBASE/Penetratio/EDF/"
@@ -41,29 +41,29 @@ class Config:
 
     @classmethod
     def setup_logging(cls) -> None:
-        """Настройка логирования."""
+        """Set up logging."""
         logging.basicConfig(level=cls.LOGGING_LEVEL, format='%(levelname)s - %(message)s')
 
     @classmethod
     def save_to_file(cls, file_path: str = "config.json") -> None:
         """
-        Сохраняет текущую конфигурацию в файл.
+        Saves the current configuration to a file.
 
-        Аргументы:
-            file_path (str): Путь к файлу для сохранения конфигурации.
+        Args:
+            file_path (str): Path to the file where the configuration will be saved.
         """
         config_dict = {field.name: getattr(cls, field.name) for field in fields(cls)}
         with open(file_path, "w") as f:
             json.dump(config_dict, f, indent=4)
-        logging.info(f"Настройки сохранены в {file_path}")
+        logging.info(f"Settings saved to {file_path}")
 
     @classmethod
     def load_from_file(cls, file_path: str = "config.json") -> None:
         """
-        Загружает конфигурацию из файла.
+        Loads configuration from a file.
 
-        Аргументы:
-            file_path (str): Путь к файлу с конфигурацией.
+        Args:
+            file_path (str): Path to the configuration file.
         """
         if os.path.exists(file_path):
             with open(file_path, "r") as f:
@@ -79,24 +79,24 @@ class Config:
                                 value = float(value)
                         except (ValueError, TypeError):
                             logging.warning(
-                                f"Невозможно преобразовать {key}={value} в {field_type}. Используется значение по умолчанию."
+                                f"Cannot convert {key}={value} to {field_type}. Using default value."
                             )
-                            value = getattr(cls, key)  # Используем значение по умолчанию
+                            value = getattr(cls, key)  # Use the default value
                     setattr(cls, key, value)
-            logging.info(f"Настройки загружены из {file_path}")
+            logging.info(f"Settings loaded from {file_path}")
         else:
-            logging.info(f"Файл {file_path} не найден. Используются настройки по умолчанию.")
+            logging.info(f"File {file_path} not found. Using default settings.")
 
     @classmethod
     def log_config(cls) -> None:
-        """Логирует текущую конфигурацию."""
-        logging.info("Текущая конфигурация:")
+        """Logs the current configuration."""
+        logging.info("Current configuration:")
         for field in fields(cls):
             value = getattr(cls, field.name)
             logging.info(f"{field.name}: {value}")
 
-# Настройка логирования и загрузка конфигурации
+# Set up logging and load configuration
 Config.setup_logging()
 Config.load_from_file()
-Config.log_config()  # Логируем текущую конфигурацию
-logging.info("Конфигурация успешно загружена.")
+Config.log_config()  # Log the current configuration
+logging.info("Configuration successfully loaded.")

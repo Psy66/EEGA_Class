@@ -10,45 +10,45 @@ from config import Config
 
 class EEGProcessor:
     """
-    Класс для обработки данных EEG.
+    Class for processing EEG data.
 
-    Методы:
-        load_labels: Загружает метки из CSV-файла.
-        describe_first_file: Возвращает информацию о первом файле в директории.
-        process_edf: Обрабатывает EDF-файлы и возвращает данные для обучения.
-        load_and_process_data: Загружает и обрабатывает данные.
+    Methods:
+        load_labels: Loads labels from a CSV file.
+        describe_first_file: Returns information about the first file in the directory.
+        process_edf: Processes EDF files and returns training data.
+        load_and_process_data: Loads and processes data.
     """
 
     @staticmethod
     def load_labels(csv_path: str) -> pd.DataFrame:
         """
-        Загружает метки из CSV-файла.
+        Loads labels from a CSV file.
 
-        Аргументы:
-            csv_path (str): Путь к CSV-файлу с метками.
+        Args:
+            csv_path (str): Path to the CSV file containing labels.
 
-        Возвращает:
-            pd.DataFrame: DataFrame с метками.
+        Returns:
+            pd.DataFrame: DataFrame with labels.
 
-        Исключения:
-            Exception: Если произошла ошибка при загрузке файла.
+        Raises:
+            Exception: If an error occurs while loading the file.
         """
         try:
             return pd.read_csv(csv_path, delimiter=';')
         except Exception as e:
-            logging.error(f"Ошибка при загрузке меток из {csv_path}: {e}")
+            logging.error(f"Error loading labels from {csv_path}: {e}")
             raise
 
     @staticmethod
     def describe_first_file(dir_path: str) -> str:
         """
-        Возвращает информацию о первом EDF-файле в директории.
+        Returns information about the first EDF file in the directory.
 
-        Аргументы:
-            dir_path (str): Путь к директории с EDF-файлами.
+        Args:
+            dir_path (str): Path to the directory containing EDF files.
 
-        Возвращает:
-            str: Информация о первом файле.
+        Returns:
+            str: Information about the first file.
         """
         for file in os.listdir(dir_path):
             if file.endswith('.EDF'):
@@ -57,37 +57,37 @@ class EEGProcessor:
                         warnings.simplefilter("ignore", category=RuntimeWarning)
                         raw = mne.io.read_raw_edf(os.path.join(dir_path, file), preload=True, verbose=False)
                     info = [
-                        f"Информация о первом файле в директории: {file}",
-                        f"Длительность записи: {raw.times[-1]:.2f} секунд",
-                        f"Частота дискретизации: {raw.info['sfreq']} Гц",
-                        f"Количество каналов: {raw.info['nchan']}",
+                        f"Information about the first file in the directory: {file}",
+                        f"Recording duration: {raw.times[-1]:.2f} seconds",
+                        f"Sampling frequency: {raw.info['sfreq']} Hz",
+                        f"Number of channels: {raw.info['nchan']}",
                     ]
                     if raw.annotations:
-                        info.append(f"События (метки): {raw.annotations.description}")
+                        info.append(f"Events (labels): {raw.annotations.description}")
                     else:
-                        info.append("События (метки) отсутствуют.")
+                        info.append("No events (labels) found.")
                     return "\n".join(info)
                 except Exception as e:
-                    logging.error(f"Ошибка при анализе файла {file}: {str(e)}")
-                    return f"Ошибка при анализе файла {file}: {str(e)}"
-        return "Файлы .EDF не найдены в директории."
+                    logging.error(f"Error analyzing file {file}: {str(e)}")
+                    return f"Error analyzing file {file}: {str(e)}"
+        return "No .EDF files found in the directory."
 
     @staticmethod
     def process_edf(dir_path: str, labels_df: pd.DataFrame, seg_len: int) -> Tuple[np.ndarray, np.ndarray, int, int]:
         """
-        Обрабатывает EDF-файлы и возвращает данные для обучения.
+        Processes EDF files and returns training data.
 
-        Аргументы:
-            dir_path (str): Путь к директории с EDF-файлами.
-            labels_df (pd.DataFrame): DataFrame с метками.
-            seg_len (int): Длина сегмента данных.
+        Args:
+            dir_path (str): Path to the directory containing EDF files.
+            labels_df (pd.DataFrame): DataFrame containing labels.
+            seg_len (int): Length of the data segment.
 
-        Возвращает:
+        Returns:
             Tuple[np.ndarray, np.ndarray, int, int]:
-                - x_data_array: Массив признаков.
-                - y_data_array: Массив меток.
-                - processed_files: Количество обработанных файлов.
-                - skipped_files: Количество пропущенных файлов.
+                - x_data_array: Array of features.
+                - y_data_array: Array of labels.
+                - processed_files: Number of processed files.
+                - skipped_files: Number of skipped files.
         """
         x_data, y_data = [], []
         skipped_files = processed_files = 0
@@ -116,9 +116,9 @@ class EEGProcessor:
                         y_data.extend(labels)
                     processed_files += 1
                 except Exception as e:
-                    logging.error(f"Ошибка при обработке файла {file}: {str(e)}")
+                    logging.error(f"Error processing file {file}: {str(e)}")
 
-        logging.info(f"Обработано файлов: {processed_files}, пропущено файлов (без меток): {skipped_files}")
+        logging.info(f"Processed files: {processed_files}, skipped files (no labels): {skipped_files}")
         x_data_array = np.array(x_data).reshape(-1, raw.info['nchan'], seg_len, 1)
         y_data_array = np.array(y_data)
         return x_data_array, y_data_array, processed_files, skipped_files
@@ -126,32 +126,32 @@ class EEGProcessor:
     @staticmethod
     def load_and_process_data(data_path: str, labels_path: str, segment_length: int) -> Tuple[np.ndarray, np.ndarray, int, int, int, int, str]:
         """
-        Загружает и обрабатывает данные.
+        Loads and processes data.
 
-        Аргументы:
-            data_path (str): Путь к данным.
-            labels_path (str): Путь к файлу с метками.
-            segment_length (int): Длина сегмента данных.
+        Args:
+            data_path (str): Path to the data.
+            labels_path (str): Path to the labels file.
+            segment_length (int): Length of the data segment.
 
-        Возвращает:
+        Returns:
             Tuple[np.ndarray, np.ndarray, int, int, int, int, str]:
-                - features: Массив признаков.
-                - labels: Массив меток.
-                - n_cls: Количество классов.
-                - n_chan: Количество каналов.
-                - processed_files: Количество обработанных файлов.
-                - skipped_files: Количество пропущенных файлов.
-                - file_info: Информация о первом файле.
+                - features: Array of features.
+                - labels: Array of labels.
+                - n_cls: Number of classes.
+                - n_chan: Number of channels.
+                - processed_files: Number of processed files.
+                - skipped_files: Number of skipped files.
+                - file_info: Information about the first file.
         """
         try:
             labels = EEGProcessor.load_labels(labels_path)
-            file_info = EEGProcessor.describe_first_file(data_path)  # Получаем информацию о первом файле
+            file_info = EEGProcessor.describe_first_file(data_path)  # Get information about the first file
             features, labels, processed_files, skipped_files = EEGProcessor.process_edf(data_path, labels, segment_length)
             unique_labels, labels = np.unique(labels, return_inverse=True)
             n_chan = features.shape[1]
-            logging.info(f"Количество классов: {len(unique_labels)}, Классы: {', '.join(map(str, unique_labels))}, "
-                         f"Размер тренировочного набора: {features.shape}, Количество каналов: {n_chan}")
+            logging.info(f"Number of classes: {len(unique_labels)}, Classes: {', '.join(map(str, unique_labels))}, "
+                         f"Training set size: {features.shape}, Number of channels: {n_chan}")
             return features, labels, len(unique_labels), n_chan, processed_files, skipped_files, file_info
         except Exception as e:
-            logging.error(f"Ошибка при загрузке и обработке данных: {e}")
+            logging.error(f"Error loading and processing data: {e}")
             raise

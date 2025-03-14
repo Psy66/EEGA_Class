@@ -8,20 +8,20 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 class EEGUI:
     """
-    Класс для создания графического интерфейса пользователя (GUI) для анализа EEG.
+    Class for creating the graphical user interface (GUI) for EEG analysis.
 
-    Атрибуты:
-        root (tk.Tk): Корневое окно приложения.
-        controller (EEGController): Контроллер для управления логикой приложения.
+    Attributes:
+        root (tk.Tk): Root window of the application.
+        controller (EEGController): Controller for managing application logic.
     """
 
     def __init__(self, root: tk.Tk, controller):
         """
-        Инициализация GUI.
+        Initializes the GUI.
 
-        Аргументы:
-            root (tk.Tk): Корневое окно приложения.
-            controller (EEGController): Контроллер для управления логикой приложения.
+        Args:
+            root (tk.Tk): Root window of the application.
+            controller (EEGController): Controller for managing application logic.
         """
         self.root = root
         self.controller = controller
@@ -30,21 +30,21 @@ class EEGUI:
         self.setup_ui()
 
     def setup_ui(self) -> None:
-        """Настройка интерфейса пользователя."""
+        """Sets up the user interface."""
         self.main_frame = ttk.Frame(self.root)
         self.main_frame.pack(fill="both", expand=True, padx=10, pady=10)
         self.setup_left_frame()
         self.setup_right_frame()
 
     def setup_left_frame(self) -> None:
-        """Настройка левой панели интерфейса."""
+        """Sets up the left panel of the interface."""
         self.left_frame = ttk.Frame(self.main_frame)
         self.left_frame.pack(side=tk.LEFT, fill="both", expand=True)
         self.setup_buttons_frame()
         self.setup_settings_frame()
 
     def setup_buttons_frame(self) -> None:
-        """Настройка панели с кнопками."""
+        """Sets up the panel with buttons."""
         self.buttons_frame = ttk.LabelFrame(self.left_frame, text="Actions")
         self.buttons_frame.pack(fill="x", padx=5, pady=5)
         ttk.Button(self.buttons_frame, text="Load Data", command=self.controller.load_data).pack(side=tk.LEFT, padx=5, pady=5)
@@ -54,7 +54,7 @@ class EEGUI:
         ttk.Button(self.buttons_frame, text="Exit", command=self.root.quit).pack(side=tk.LEFT, padx=5, pady=5)
 
     def setup_settings_frame(self) -> None:
-        """Настройка панели с настройками."""
+        """Sets up the panel with settings."""
         self.settings_frame = ttk.LabelFrame(self.left_frame, text="Settings")
         self.settings_frame.pack(fill="both", expand=True, padx=5, pady=5)
         self.entries = {}
@@ -64,21 +64,21 @@ class EEGUI:
             entry.insert(0, str(value))
             entry.grid(row=i, column=1, padx=5, pady=5, sticky="w")
             self.entries[setting] = entry
-            if setting in ["Расположение файлов для обучения", "Расположение csv файла с метками",
-                           "Расположение сохранённой модели", "Расположение файлов для предсказаний"]:
-                btn_text = "Выбрать файл" if setting == "Расположение csv файла с метками" or setting == "Расположение сохранённой модели" else "Выбрать папку"
-                btn_command = partial(self.controller.select_path, setting, is_file=setting == "Расположение csv файла с метками" or setting == "Расположение сохранённой модели")
+            if setting in ["Location of training files", "Location of the CSV file with labels",
+                           "Location of the saved model", "Location of files for predictions"]:
+                btn_text = "Select File" if setting == "Location of the CSV file with labels" or setting == "Location of the saved model" else "Select Folder"
+                btn_command = partial(self.controller.select_path, setting, is_file=setting == "Location of the CSV file with labels" or setting == "Location of the saved model")
                 ttk.Button(self.settings_frame, text=btn_text, command=btn_command).grid(row=i, column=2, padx=5, pady=5)
 
     def setup_right_frame(self) -> None:
-        """Настройка правой панели интерфейса."""
+        """Sets up the right panel of the interface."""
         self.right_frame = ttk.Frame(self.main_frame)
         self.right_frame.pack(side=tk.RIGHT, fill="both", expand=True)
         self.setup_status_frame()
         self.setup_plot_frame()
 
     def setup_status_frame(self) -> None:
-        """Настройка панели статуса."""
+        """Sets up the status panel."""
         self.status_frame = ttk.LabelFrame(self.right_frame, text="Status")
         self.status_frame.pack(fill="both", expand=True, padx=5, pady=5)
         self.status_text = scrolledtext.ScrolledText(self.status_frame, wrap=tk.WORD, state="disabled")
@@ -87,7 +87,7 @@ class EEGUI:
         self.progress.pack(fill="x", padx=5, pady=5)
 
     def setup_plot_frame(self) -> None:
-        """Настройка панели для отображения графиков."""
+        """Sets up the panel for displaying plots."""
         self.plot_frame = ttk.LabelFrame(self.right_frame, text="Training Plot")
         self.plot_frame.pack(fill="both", expand=True, padx=5, pady=5)
         self.fig, self.ax = plt.subplots(figsize=(8, 4))
@@ -97,10 +97,10 @@ class EEGUI:
 
     def log_status(self, message: str) -> None:
         """
-        Логирует сообщение в панель статуса.
+        Logs a message to the status panel.
 
-        Аргументы:
-            message (str): Сообщение для логирования.
+        Args:
+            message (str): Message to log.
         """
         self.status_text.config(state="normal")
         self.status_text.insert(tk.END, message + "\n")
@@ -109,21 +109,21 @@ class EEGUI:
 
     def update_progress(self, value: int) -> None:
         """
-        Обновляет прогресс-бар.
+        Updates the progress bar.
 
-        Аргументы:
-            value (int): Значение прогресса (0-100).
+        Args:
+            value (int): Progress value (0-100).
         """
         self.progress["value"] = value
         self.root.update_idletasks()
 
     def plot_training_results(self, train_losses: List[float], train_accuracies: List[float]) -> None:
         """
-        Отображает график потерь и точности.
+        Displays the loss and accuracy plot.
 
-        Аргументы:
-            train_losses (List[float]): Список потерь.
-            train_accuracies (List[float]): Список точности.
+        Args:
+            train_losses (List[float]): List of losses.
+            train_accuracies (List[float]): List of accuracies.
         """
         self.ax.clear()
         self.ax2.clear()

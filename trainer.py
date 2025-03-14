@@ -14,37 +14,37 @@ from config import Config
 
 class EEGTrainer:
     """
-    Класс для обучения и оценки модели EEG.
+    Class for training and evaluating the EEG model.
 
-    Атрибуты:
-        model (nn.Module): Модель для обучения.
-        device (torch.device): Устройство для вычислений (CPU/GPU).
+    Attributes:
+        model (nn.Module): Model to train.
+        device (torch.device): Device for computation (CPU/GPU).
     """
 
     def __init__(self, model: nn.Module, device: torch.device):
         """
-        Инициализация тренера.
+        Initializes the trainer.
 
-        Аргументы:
-            model (nn.Module): Модель для обучения.
-            device (torch.device): Устройство для вычислений.
+        Args:
+            model (nn.Module): Model to train.
+            device (torch.device): Device for computation.
         """
         self.model = model
         self.device = device
 
     def create_data_loaders(self, features: np.ndarray, labels: np.ndarray) -> Tuple[DataLoader, torch.Tensor, torch.Tensor]:
         """
-        Создает DataLoader для обучения и тестовые тензоры.
+        Creates DataLoader for training and test tensors.
 
-        Аргументы:
-            features (np.ndarray): Массив признаков.
-            labels (np.ndarray): Массив меток.
+        Args:
+            features (np.ndarray): Array of features.
+            labels (np.ndarray): Array of labels.
 
-        Возвращает:
+        Returns:
             Tuple[DataLoader, torch.Tensor, torch.Tensor]:
-                - train_loader: DataLoader для обучения.
-                - x_test_tensor: Тестовые данные.
-                - y_test_tensor: Тестовые метки.
+                - train_loader: DataLoader for training.
+                - x_test_tensor: Test data.
+                - y_test_tensor: Test labels.
         """
         x_train, x_test, y_train, y_test = train_test_split(features, labels, test_size=Config.TEST_SIZE, random_state=42)
         x_train_tensor = torch.tensor(x_train, dtype=torch.float32, device=self.device).squeeze()
@@ -57,15 +57,15 @@ class EEGTrainer:
 
     def train(self, train_loader: DataLoader, epochs: int, learning_rate: float) -> List[List[str]]:
         """
-        Обучает модель.
+        Trains the model.
 
-        Аргументы:
-            train_loader (DataLoader): DataLoader для обучения.
-            epochs (int): Количество эпох.
-            learning_rate (float): Скорость обучения.
+        Args:
+            train_loader (DataLoader): DataLoader for training.
+            epochs (int): Number of epochs.
+            learning_rate (float): Learning rate.
 
-        Возвращает:
-            List[List[str]]: Результаты обучения для каждой эпохи.
+        Returns:
+            List[List[str]]: Training results for each epoch.
         """
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
@@ -99,20 +99,20 @@ class EEGTrainer:
 
             scheduler.step()
 
-        logging.info("\n" + tabulate(epoch_results, headers=["Эпоха", "Средняя потеря", "Точность", "Скорость обучения"], tablefmt="pretty"))
+        logging.info("\n" + tabulate(epoch_results, headers=["Epoch", "Average Loss", "Accuracy", "Learning Rate"], tablefmt="pretty"))
 
         return epoch_results
 
     def evaluate(self, x_test_tensor: torch.Tensor, y_test_tensor: torch.Tensor) -> Dict[str, float]:
         """
-        Оценивает модель на тестовых данных.
+        Evaluates the model on test data.
 
-        Аргументы:
-            x_test_tensor (torch.Tensor): Тестовые данные.
-            y_test_tensor (torch.Tensor): Тестовые метки.
+        Args:
+            x_test_tensor (torch.Tensor): Test data.
+            y_test_tensor (torch.Tensor): Test labels.
 
-        Возвращает:
-            Dict[str, float]: Метрики оценки (precision, recall, f1, accuracy).
+        Returns:
+            Dict[str, float]: Evaluation metrics (precision, recall, f1, accuracy).
         """
         self.model.eval()
         with torch.no_grad():

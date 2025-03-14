@@ -14,71 +14,71 @@ from trainer import EEGTrainer
 
 class EEGController:
     """
-    Контроллер для управления логикой приложения EEG Analysis Tool.
+    Controller for managing the logic of the EEG Analysis Tool application.
 
-    Атрибуты:
-        ui (EEGUI): Графический интерфейс пользователя.
-        device (torch.device): Устройство для вычислений (CPU/GPU).
+    Attributes:
+        ui (EEGUI): Graphical user interface.
+        device (torch.device): Device for computation (CPU/GPU).
     """
 
     def __init__(self, ui=None):
         """
-        Инициализация контроллера.
+        Initializes the controller.
 
-        Аргументы:
-            ui (EEGUI, optional): Графический интерфейс пользователя. По умолчанию None.
+        Args:
+            ui (EEGUI, optional): Graphical user interface. Defaults to None.
         """
         self.ui = ui
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if self.ui:
-            self.ui.log_status(f"Используемое устройство: {self.device}")
+            self.ui.log_status(f"Using device: {self.device}")
 
     def set_ui(self, ui):
         """
-        Устанавливает графический интерфейс пользователя.
+        Sets the graphical user interface.
 
-        Аргументы:
-            ui (EEGUI): Графический интерфейс пользователя.
+        Args:
+            ui (EEGUI): Graphical user interface.
         """
         self.ui = ui
-        self.ui.log_status(f"Используемое устройство: {self.device}")
+        self.ui.log_status(f"Using device: {self.device}")
 
     @staticmethod
     def get_settings() -> List[Tuple[str, str]]:
         """
-        Возвращает текущие настройки.
+        Returns the current settings.
 
-        Возвращает:
-            List[Tuple[str, str]]: Список кортежей (название настройки, значение).
+        Returns:
+            List[Tuple[str, str]]: List of tuples (setting name, value).
         """
         return [
-            ("Расположение файлов для обучения", Config.DATA_PATH),
-            ("Расположение csv файла с метками", Config.LABELS_PATH),
-            ("Расположение сохранённой модели", Config.MODEL_PATH),
-            ("Расположение файлов для предсказаний", Config.PRED_PATH),
-            ("Длина одного сегмента данных", Config.SEGMENT_LENGTH),
-            ("Размер батча", Config.BATCH_SIZE),
-            ("Количество эпох обучения", Config.EPOCHS),
-            ("Скорость обучения", Config.LEARNING_RATE),
-            ("Размер тестового набора", Config.TEST_SIZE),
-            ("Нижний порог фильтрации сигнала ЭЭГ", Config.LOW_PASS_F),
-            ("Верхний порог фильтрации сигнала ЭЭГ", Config.HIGH_PASS_F),
-            ("Коэффициент снижения скорости обучения", Config.LEARNING_RATE_DECAY),
+            ("Location of training files", Config.DATA_PATH),
+            ("Location of the CSV file with labels", Config.LABELS_PATH),
+            ("Location of the saved model", Config.MODEL_PATH),
+            ("Location of files for predictions", Config.PRED_PATH),
+            ("Length of one data segment", Config.SEGMENT_LENGTH),
+            ("Batch size", Config.BATCH_SIZE),
+            ("Number of training epochs", Config.EPOCHS),
+            ("Learning rate", Config.LEARNING_RATE),
+            ("Test set size", Config.TEST_SIZE),
+            ("Lower threshold for EEG signal filtering", Config.LOW_PASS_F),
+            ("Upper threshold for EEG signal filtering", Config.HIGH_PASS_F),
+            ("Learning rate decay factor", Config.LEARNING_RATE_DECAY),
         ]
 
     def select_path(self, setting: str, is_file: bool = False) -> None:
         """
-        Выбирает путь к файлу или директории.
+        Selects a file or directory path.
 
-        Аргументы:
-            setting (str): Название настройки.
-            is_file (bool, optional): Если True, выбирается файл. По умолчанию False (выбор директории).
+        Args:
+            setting (str): Setting name.
+            is_file (bool, optional): If True, selects a file. Defaults to False (selects a directory).
         """
         initial_dir = os.path.dirname(self.ui.entries[setting].get()) if self.ui.entries[setting].get() else os.getcwd()
         if is_file:
-            path = filedialog.askopenfilename(initialdir=initial_dir, title=f"Выберите файл для {setting}")
+            path = filedialog.askopenfilename(initialdir=initial_dir, title=f"Select file for {setting}")
         else:
-            path = filedialog.askdirectory(initialdir=initial_dir, title=f"Выберите папку для {setting}")
+            path = filedialog.askdirectory(initialdir=initial_dir, title=f"Select folder for {setting}")
         if path:
             self.ui.entries[setting].delete(0, tk.END)
             self.ui.entries[setting].insert(0, path)
@@ -86,13 +86,13 @@ class EEGController:
     @staticmethod
     def run_in_thread(func: Callable) -> Callable:
         """
-        Декоратор для запуска функции в отдельном потоке.
+        Decorator to run a function in a separate thread.
 
-        Аргументы:
-            func (Callable): Функция, которую нужно запустить в отдельном потоке.
+        Args:
+            func (Callable): Function to run in a separate thread.
 
-        Возвращает:
-            Callable: Обернутая функция.
+        Returns:
+            Callable: Wrapped function.
         """
         def wrapper(*args, **kwargs):
             threading.Thread(target=func, args=args, kwargs=kwargs, daemon=True).start()
@@ -101,26 +101,26 @@ class EEGController:
     @staticmethod
     def handle_errors(func: Callable) -> Callable:
         """
-        Декоратор для обработки ошибок.
+        Decorator to handle errors.
 
-        Аргументы:
-            func (Callable): Функция, которую нужно обернуть.
+        Args:
+            func (Callable): Function to wrap.
 
-        Возвращает:
-            Callable: Обернутая функция.
+        Returns:
+            Callable: Wrapped function.
         """
         def wrapper(self, *args, **kwargs):
             try:
                 return func(self, *args, **kwargs)
             except Exception as e:
-                self.handle_error(f"Ошибка в функции {func.__name__}", e)
+                self.handle_error(f"Error in function {func.__name__}", e)
         return wrapper
 
     @run_in_thread
     @handle_errors
     def load_data(self) -> None:
-        """Загружает данные."""
-        self.ui.log_status("Загрузка данных...")
+        """Loads data."""
+        self.ui.log_status("Loading data...")
         self.ui.update_progress(0)
         self.x, self.y, self.n_cls, self.n_chan, processed_files, skipped_files, file_info = EEGProcessor.load_and_process_data(
             Config.DATA_PATH, Config.LABELS_PATH, Config.SEGMENT_LENGTH
@@ -129,20 +129,20 @@ class EEGController:
         self.class_labels = labels_df['key'].dropna().unique().tolist()
         total_files = len([f for f in os.listdir(Config.DATA_PATH) if f.endswith('.EDF')])
         self.ui.log_status(file_info)
-        self.ui.log_status("Данные успешно загружены и предобработаны!")
-        self.ui.log_status(f"Всего файлов в папке: {total_files}")
-        self.ui.log_status(f"Обработано файлов: {processed_files}")
-        self.ui.log_status(f"Пропущено файлов (без меток): {skipped_files}")
-        self.ui.log_status(f"Количество классов: {self.n_cls}, Классы: {', '.join(self.class_labels)}")
-        self.ui.log_status(f"Размер тренировочного набора: {self.x.shape}")
-        self.ui.log_status(f"Количество каналов: {self.n_chan}")
+        self.ui.log_status("Data successfully loaded and preprocessed!")
+        self.ui.log_status(f"Total files in folder: {total_files}")
+        self.ui.log_status(f"Processed files: {processed_files}")
+        self.ui.log_status(f"Skipped files (no labels): {skipped_files}")
+        self.ui.log_status(f"Number of classes: {self.n_cls}, Classes: {', '.join(self.class_labels)}")
+        self.ui.log_status(f"Training set size: {self.x.shape}")
+        self.ui.log_status(f"Number of channels: {self.n_chan}")
         self.ui.update_progress(100)
 
     @run_in_thread
     @handle_errors
     def train_model(self) -> None:
-        """Запускает обучение модели."""
-        self.ui.log_status("Идет обучение модели...")
+        """Starts model training."""
+        self.ui.log_status("Training model...")
         self.ui.update_progress(0)
         model = CNN(self.n_cls, self.n_chan).to(self.device)
         trainer = EEGTrainer(model, self.device)
@@ -151,9 +151,9 @@ class EEGController:
         train_losses = [float(result[1]) for result in epoch_results]
         train_accuracies = [float(result[2]) for result in epoch_results]
         self.ui.plot_training_results(train_losses, train_accuracies)
-        table = tabulate(epoch_results, headers=["Эпоха", "Средняя потеря", "Точность", "Скорость обучения"],
+        table = tabulate(epoch_results, headers=["Epoch", "Average Loss", "Accuracy", "Learning Rate"],
                          tablefmt="pretty")
-        self.ui.log_status("\nРезультаты обучения:")
+        self.ui.log_status("\nTraining results:")
         self.ui.log_status(table)
         metrics = trainer.evaluate(x_test_tensor, y_test_tensor)
         self.ui.log_status("\nModel Metrics:")
@@ -162,22 +162,22 @@ class EEGController:
         self.ui.log_status(f"F1 Score: {metrics['f1']:.4f}")
         self.ui.log_status(f"Accuracy: {metrics['accuracy']:.4f}")
         torch.save(model.state_dict(), Config.MODEL_PATH)
-        self.ui.log_status(f"Модель сохранена в: {Config.MODEL_PATH}")
+        self.ui.log_status(f"Model saved to: {Config.MODEL_PATH}")
         self.ui.update_progress(100)
 
     @run_in_thread
     @handle_errors
     def predict_data(self) -> None:
-        """Запускает предсказание."""
-        self.ui.log_status("Идет предсказание...")
+        """Starts prediction."""
+        self.ui.log_status("Running prediction...")
         self.ui.update_progress(0)
         results = predict_new_data(Config.MODEL_PATH, Config.PRED_PATH, Config.SEGMENT_LENGTH, self.n_cls,
                                    self.n_chan, self.class_labels)
-        self.ui.log_status("\nРезультаты предсказания:")
+        self.ui.log_status("\nPrediction results:")
         self.ui.status_text.config(state="normal")
         self.ui.status_text.config(state="disabled")
         table_header = "| {:<35} | {:<5} | {:<11} | {:<9} | {:<14} |\n".format(
-            "Файл", "Класс", "Уверенность", "Сегментов", "Длина сегмента"
+            "File", "Class", "Confidence", "Segments", "Segment Length"
         )
         separator = "-" * len(table_header) + "\n"
         self.ui.status_text.config(state="normal")
@@ -204,25 +204,25 @@ class EEGController:
 
         self.ui.status_text.insert(tk.END, separator)
         self.ui.status_text.config(state="disabled")
-        self.ui.log_status("Предсказание завершено.")
+        self.ui.log_status("Prediction completed.")
         self.ui.update_progress(100)
 
     @handle_errors
     def save_settings(self) -> None:
-        """Сохраняет настройки."""
+        """Saves settings."""
         key_mapping = {
-            "Расположение файлов для обучения": "DATA_PATH",
-            "Расположение csv файла с метками": "LABELS_PATH",
-            "Расположение сохранённой модели": "MODEL_PATH",
-            "Расположение файлов для предсказаний": "PRED_PATH",
-            "Длина одного сегмента данных": "SEGMENT_LENGTH",
-            "Размер батча": "BATCH_SIZE",
-            "Количество эпох обучения": "EPOCHS",
-            "Скорость обучения": "LEARNING_RATE",
-            "Размер тестового набора": "TEST_SIZE",
-            "Нижний порог фильтрации сигнала ЭЭГ": "LOW_PASS_F",
-            "Верхний порог фильтрации сигнала ЭЭГ": "HIGH_PASS_F",
-            "Коэффициент снижения скорости обучения": "LEARNING_RATE_DECAY",
+            "Location of training files": "DATA_PATH",
+            "Location of the CSV file with labels": "LABELS_PATH",
+            "Location of the saved model": "MODEL_PATH",
+            "Location of files for predictions": "PRED_PATH",
+            "Length of one data segment": "SEGMENT_LENGTH",
+            "Batch size": "BATCH_SIZE",
+            "Number of training epochs": "EPOCHS",
+            "Learning rate": "LEARNING_RATE",
+            "Test set size": "TEST_SIZE",
+            "Lower threshold for EEG signal filtering": "LOW_PASS_F",
+            "Upper threshold for EEG signal filtering": "HIGH_PASS_F",
+            "Learning rate decay factor": "LEARNING_RATE_DECAY",
         }
         for russian_key, entry in self.ui.entries.items():
             value = entry.get()
@@ -237,15 +237,15 @@ class EEGController:
                     value = str(value)
                 setattr(Config, english_key, value)
         Config.save_to_file()
-        self.ui.log_status("Конфигурация успешно сохранена и обновлена.")
+        self.ui.log_status("Configuration successfully saved and updated.")
 
     def handle_error(self, message: str, error: Exception) -> None:
         """
-        Обрабатывает ошибки и выводит сообщение.
+        Handles errors and displays a message.
 
-        Аргументы:
-            message (str): Сообщение об ошибке.
-            error (Exception): Объект исключения.
+        Args:
+            message (str): Error message.
+            error (Exception): Exception object.
         """
         self.ui.log_status(f"{message}: {error}")
         messagebox.showerror("Error", f"{message}: {error}")

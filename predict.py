@@ -13,21 +13,21 @@ from config import Config
 from model import CNN
 
 def setup_logging() -> None:
-    """Настройка логирования."""
+    """Set up logging."""
     logging.basicConfig(level=Config.LOGGING_LEVEL, format='%(levelname)s - %(message)s')
 
 def load_model(model_path: str, n_cls: int, n_chan: int, device: torch.device) -> CNN:
     """
-    Загружает модель из файла.
+    Loads a model from a file.
 
-    Аргументы:
-        model_path (str): Путь к файлу модели.
-        n_cls (int): Количество классов.
-        n_chan (int): Количество каналов.
-        device (torch.device): Устройство для вычислений (CPU/GPU).
+    Args:
+        model_path (str): Path to the model file.
+        n_cls (int): Number of classes.
+        n_chan (int): Number of channels.
+        device (torch.device): Device for computation (CPU/GPU).
 
-    Возвращает:
-        CNN: Загруженная модель.
+    Returns:
+        CNN: Loaded model.
     """
     model = CNN(n_cls, n_chan).to(device)
     model.load_state_dict(torch.load(model_path))
@@ -36,17 +36,17 @@ def load_model(model_path: str, n_cls: int, n_chan: int, device: torch.device) -
 
 def process_file(file_path: str, segment_length: int, model: CNN, device: torch.device, class_labels: List[str]) -> Dict[str, str]:
     """
-    Обрабатывает один файл и возвращает результаты предсказания.
+    Processes a single file and returns prediction results.
 
-    Аргументы:
-        file_path (str): Путь к файлу.
-        segment_length (int): Длина сегмента данных.
-        model (CNN): Модель для предсказания.
-        device (torch.device): Устройство для вычислений (CPU/GPU).
-        class_labels (List[str]): Список меток классов.
+    Args:
+        file_path (str): Path to the file.
+        segment_length (int): Length of the data segment.
+        model (CNN): Model for prediction.
+        device (torch.device): Device for computation (CPU/GPU).
+        class_labels (List[str]): List of class labels.
 
-    Возвращает:
-        Dict[str, str]: Результаты предсказания.
+    Returns:
+        Dict[str, str]: Prediction results.
     """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=RuntimeWarning)
@@ -84,23 +84,23 @@ def process_file(file_path: str, segment_length: int, model: CNN, device: torch.
 
 def predict_new_data(model_path: str, pred_path: str, segment_length: int, n_cls: int, n_chan: int, class_labels: List[str]) -> List[List[str]]:
     """
-    Предсказывает классы для новых данных.
+    Predicts classes for new data.
 
-    Аргументы:
-        model_path (str): Путь к файлу модели.
-        pred_path (str): Путь к данным для предсказания.
-        segment_length (int): Длина сегмента данных.
-        n_cls (int): Количество классов.
-        n_chan (int): Количество каналов.
-        class_labels (List[str]): Список меток классов.
+    Args:
+        model_path (str): Path to the model file.
+        pred_path (str): Path to the prediction data.
+        segment_length (int): Length of the data segment.
+        n_cls (int): Number of classes.
+        n_chan (int): Number of channels.
+        class_labels (List[str]): List of class labels.
 
-    Возвращает:
-        List[List[str]]: Результаты предсказания.
+    Returns:
+        List[List[str]]: Prediction results.
     """
     setup_logging()
 
     if not os.path.exists(pred_path):
-        logging.error(f"Директория {pred_path} не найдена.")
+        logging.error(f"Directory {pred_path} not found.")
         return []
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -110,10 +110,10 @@ def predict_new_data(model_path: str, pred_path: str, segment_length: int, n_cls
     files = [file for file in os.listdir(pred_path) if file.endswith('.EDF')]
 
     if not files:
-        logging.warning(f"Нет файлов .EDF в директории {pred_path}.")
+        logging.warning(f"No .EDF files found in directory {pred_path}.")
         return results
 
-    for file in tqdm(files, desc="Обработка файлов"):
+    for file in tqdm(files, desc="Processing files"):
         try:
             result = process_file(os.path.join(pred_path, file), segment_length, model, device, class_labels)
             results.append([
@@ -121,13 +121,13 @@ def predict_new_data(model_path: str, pred_path: str, segment_length: int, n_cls
                 result["class"],
                 f"{result['confidence']:.2%}",
                 result["segments"],
-                f"{result['segment_duration']:.2f} сек",
+                f"{result['segment_duration']:.2f} sec",
             ])
         except Exception as e:
-            logging.error(f"Ошибка при обработке файла {file}: {str(e)}")
-            results.append([file, "Ошибка", "N/A", "N/A", "N/A"])
+            logging.error(f"Error processing file {file}: {str(e)}")
+            results.append([file, "Error", "N/A", "N/A", "N/A"])
 
-    headers = ["Файл", "Класс", "Уверенность", "Сегментов", "Длина сегмента"]
-    logging.info("\nРезультаты предсказания:\n" + tabulate(results, headers=headers, tablefmt="pretty"))
+    headers = ["File", "Class", "Confidence", "Segments", "Segment Duration"]
+    logging.info("\nPrediction results:\n" + tabulate(results, headers=headers, tablefmt="pretty"))
 
     return results
